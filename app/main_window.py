@@ -34,7 +34,7 @@ from .status_bar import StatusBar
 NAV_ITEMS = [
     ("相机管理", CameraPage),
     ("运行看板", RunDashboardPage),
-    ("流程编辑", FlowPage),
+    ("模板编辑", FlowPage),
     ("硬件配置", HardwareConfigPage),
     ("结果查询", ResultQueryPage),
     ("MES对接", MesPage),
@@ -49,7 +49,7 @@ NAV_ITEMS = [
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("秦皇岛文视科技有限公司")
+        self.setWindowTitle("单检测工位框架")
         self.resize(1440, 860)
         self.setMinimumSize(1100, 700)
 
@@ -81,6 +81,9 @@ class MainWindow(QMainWindow):
 
     def _build_pages(self) -> None:
         self.pages: list[QWidget] = []
+        self.camera_page: CameraPage | None = None
+        self.dashboard_page: RunDashboardPage | None = None
+        self.flow_page: FlowPage | None = None
         for _, page_class in NAV_ITEMS:
             page = page_class()
             self.pages.append(page)
@@ -88,12 +91,21 @@ class MainWindow(QMainWindow):
             # 将各页面顶部提示同步到主窗口导航栏右侧，减少页面内占用。
             page.tip_changed.connect(self._on_page_tip_changed)
             if isinstance(page, CameraPage):
+                self.camera_page = page
                 page.camera_metrics_changed.connect(self._on_camera_metrics_changed)
             if isinstance(page, RunDashboardPage):
+                self.dashboard_page = page
                 page.dashboard_full_status_changed.connect(self._on_dashboard_full_status_changed)
                 page.template_changed.connect(self._on_dashboard_template_changed)
                 page.publish_full_status()
                 self._on_dashboard_template_changed(page.current_template_name)
+            if isinstance(page, FlowPage):
+                self.flow_page = page
+
+        if self.camera_page is not None and self.dashboard_page is not None:
+            self.camera_page.image_changed.connect(self.dashboard_page.set_image)
+        if self.camera_page is not None and self.flow_page is not None:
+            self.camera_page.image_changed.connect(self.flow_page.set_roi_image)
 
     def _build_nav_bar(self) -> QFrame:
         bar = QFrame()
@@ -104,7 +116,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(10, 0, 10, 0)
         layout.setSpacing(2)
 
-        app_title = QLabel("SOP")
+        app_title = QLabel("WS")
         app_title.setObjectName("navAppTitle")
         layout.addWidget(app_title)
         layout.addSpacing(12)

@@ -38,11 +38,12 @@ class CameraPage(BasePage):
     """相机管理页。
 
     只负责相机枚举、打开/关闭、驱动选择和相机参数调整；
-    ROI 配置已迁移到流程编辑页。
+    ROI 配置已迁移到模板编辑页。
 
     """
 
     camera_metrics_changed = pyqtSignal(dict)
+    image_changed = pyqtSignal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
@@ -236,6 +237,7 @@ class CameraPage(BasePage):
             return
         self._stop_preview()
         self.image_view.set_pixmap(pixmap)
+        self.image_changed.emit(pixmap)
         self._emit_camera_metrics(0, f"{pixmap.width()}x{pixmap.height()}")
         self.set_result(f"检测结果：已打开本地图像 {file_path}")
 
@@ -266,6 +268,7 @@ class CameraPage(BasePage):
             return
         pixmap = self._frame_to_pixmap(frame)
         self.image_view.set_pixmap(pixmap)
+        self.image_changed.emit(pixmap)
         height, width = frame.shape[:2]
         self._emit_camera_metrics(1, f"{width}x{height}")
         self.set_result(f"检测结果：拍照完成，图像大小 {width}x{height}")
@@ -278,6 +281,7 @@ class CameraPage(BasePage):
         height, width = frame.shape[:2]
         pixmap = self._frame_to_pixmap(frame)
         self.image_view.set_pixmap(pixmap)
+        self.image_changed.emit(pixmap)
         self._emit_camera_metrics(round(fps, 1), f"{width}x{height}")
 
     def _frame_to_pixmap(self, frame) -> QPixmap:

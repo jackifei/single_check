@@ -3,21 +3,26 @@ from __future__ import annotations
 from copy import deepcopy
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
-    QDoubleSpinBox,
     QDialog,
+    QDoubleSpinBox,
     QFileDialog,
+    QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
     QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QSplitter,
     QTableWidget,
@@ -41,448 +46,495 @@ else:
 
 
 def _default_template(name: str) -> dict:
-    """生成默认模板数据。实际项目可替换为配置文件或数据库加载。"""
+    """生成新模板的默认数据。"""
     return {
         "name": name,
         "model_file": "",
-        "labels": ["person", "helmet", "glove", "mask", "defect"],
-        "steps": [
-            {
-                "name": "第一次检测",
-                "roi": "ROI-1",
-                "label": "person",
-                "confidence": 0.55,
-                "detection_count": 20,
-                "use_gesture": False,
-                "gesture": "无",
-                "enabled": True,
-            },
-            {
-                "name": "第二次检测",
-                "roi": "ROI-2",
-                "label": "defect",
-                "confidence": 0.45,
-                "detection_count": 30,
-                "use_gesture": True,
-                "gesture": "OK",
-                "enabled": True,
-            },
-        ],
         "rois": [
-            {"name": "ROI-1", "x": 50, "y": 45, "w": 200, "h": 150},
-            {"name": "ROI-2", "x": 330, "y": 90, "w": 220, "h": 160},
+            {"name": "ROI-1", "shape": "rect", "cx": 150, "cy": 120, "w": 200, "h": 150, "angle": 0},
+            {"name": "ROI-2", "shape": "rect", "cx": 440, "cy": 170, "w": 220, "h": 160, "angle": 0},
         ],
+        "detection": {
+            "confidence": 0.5,
+            "detection_count": 20,
+            "spare_1": "",
+            "spare_2": "",
+            "spare_3": "",
+            "enable_1": False,
+            "enable_2": False,
+            "enable_3": False,
+            "enable_4": False,
+            "enable_5": False,
+            "function_1": "功能1",
+            "function_2": "功能2",
+            "function_3": "功能3",
+            "function_4": "功能4",
+            "function_5": "功能5",
+        },
+        "other_params": [],
     }
 
 
 class FlowPage(BasePage):
-    """流程编辑页。
+    """模板编辑页。
 
-    支持产品模板管理、模型/中文标签映射、检测流程步骤配置和手势选项。
+    左侧“产品模板”模块用模板下拉框切换当前模板，模板列表仅用于选中后复制/删除；
+    右侧包含 ROI Config、Detection Config、Model Config、Other Config 四个配置区。
     """
 
-    DEFAULT_ROIS = ["全图", "ROI-1", "ROI-2"]
-    GESTURES = ["无", "OK", "NG", "握拳", "手掌", "拇指向上", "拇指向下"]
+    FUNCTION_OPTIONS = ["功能1", "功能2", "功能3", "功能4", "功能5"]
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
-            "流程编辑",
-            "创建产品模板，配置模型、标签中文名、ROI 流程及检测参数。",
+            "模板编辑",
+            "创建产品模板，并配置 ROI、检测参数、模型和其他参数。",
             parent,
         )
-        self.templates: dict[str, dict] = {
-            "默认产品A": _default_template("默认产品A"),
-            "产品B": _default_template("产品B"),
-        }
         self.config_service = ConfigService()
+        self.templates: dict[str, dict] = {}
         self.current_template_name = ""
         self._build_ui()
-        self._load_template("默认产品A")
+        self._load_template_list()
 
     def _build_ui(self) -> None:
-        top_splitter = QSplitter(Qt.Orientation.Horizontal)
-        top_splitter.setChildrenCollapsible(False)
-        top_splitter.setHandleWidth(5)
-        self.roi_panel = self._build_roi_area()
-        self.roi_panel.setMinimumWidth(320)
-        top_splitter.addWidget(self.roi_panel)
-        self.label_panel = self._build_combined_area()
-        self.label_panel.setMinimumWidth(380)
-        top_splitter.addWidget(self.label_panel)
-        top_splitter.setStretchFactor(0, 1)
-        top_splitter.setStretchFactor(1, 0)
-        top_splitter.setSizes([900, 380])
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(5)
 
-        self.flow_panel = self._build_flow_area()
-        main_splitter = QSplitter(Qt.Orientation.Vertical)
-        main_splitter.setChildrenCollapsible(False)
-        main_splitter.setHandleWidth(5)
-        main_splitter.addWidget(top_splitter)
-        main_splitter.addWidget(self.flow_panel)
-        main_splitter.setStretchFactor(0, 1)
-        main_splitter.setStretchFactor(1, 1)
-        main_splitter.setSizes([360, 420])
+        self.template_panel = self._build_template_panel()
+        self.template_panel.setMinimumWidth(300)
+        splitter.addWidget(self.template_panel)
+        splitter.addWidget(self._build_config_panel())
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([320, 900])
+        self.add_to_content(splitter, stretch=1)
 
-        self.add_to_content(main_splitter, stretch=1)
+    def _build_template_panel(self) -> QWidget:
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
 
-    def _build_roi_area(self) -> QGroupBox:
-        group = QGroupBox("ROI 配置区")
+        switch_group = QGroupBox("模板名称")
+        switch_layout = QHBoxLayout(switch_group)
+        self.template_combo = QComboBox()
+        switch_layout.addWidget(self.template_combo, 1)
+        layout.addWidget(switch_group)
+
+        template_group = QGroupBox("产品模板")
+        template_layout = QVBoxLayout(template_group)
+        self.template_list = QListWidget()
+        self.template_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        template_layout.addWidget(self.template_list, 1)
+
+        button_row = QHBoxLayout()
+        self.new_template_button = QPushButton("新建模板")
+        self.copy_template_button = QPushButton("复制模板")
+        self.delete_template_button = QPushButton("删除模板")
+        button_row.addWidget(self.new_template_button)
+        button_row.addWidget(self.copy_template_button)
+        button_row.addWidget(self.delete_template_button)
+        template_layout.addLayout(button_row)
+
+        self.save_template_button = QPushButton("保存当前模板")
+        template_layout.addWidget(self.save_template_button)
+        layout.addWidget(template_group, 1)
+
+        self.template_combo.currentTextChanged.connect(self._on_template_combo_changed)
+        self.new_template_button.clicked.connect(self._new_template)
+        self.copy_template_button.clicked.connect(self._copy_template)
+        self.delete_template_button.clicked.connect(self._delete_template)
+        self.save_template_button.clicked.connect(self._save_current_template)
+        return container
+
+    def _build_config_panel(self) -> QWidget:
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setSpacing(10)
+        layout.addWidget(self._build_roi_group())
+        layout.addWidget(self._build_detection_group())
+        layout.addWidget(self._build_other_group())
+        layout.addWidget(self._build_model_group())
+        layout.addStretch(1)
+
+        scroll.setWidget(container)
+        return scroll
+
+    def _build_roi_group(self) -> QGroupBox:
+        group = QGroupBox("ROI Config")
         layout = QVBoxLayout(group)
 
         self.roi_canvas = RoiCanvas()
         layout.addWidget(self.roi_canvas, 1)
 
-        roi_hint = QLabel("点击缩略图可打开大图进行 ROI 创建与编辑。")
-        roi_hint.setWordWrap(True)
-        layout.addWidget(roi_hint)
-
+        button_row = QHBoxLayout()
         self.edit_roi_button = QPushButton("编辑 ROI")
-        layout.addWidget(self.edit_roi_button)
+        self.crosshair_check = QCheckBox("显示十字线")
+        self.crosshair_check.setChecked(True)
+        button_row.addWidget(self.edit_roi_button)
+        button_row.addWidget(self.crosshair_check)
+        button_row.addStretch(1)
+        layout.addLayout(button_row)
+
         self.edit_roi_button.clicked.connect(self._open_roi_editor)
+        self.crosshair_check.toggled.connect(self.roi_canvas.set_crosshair_visible)
         return group
 
-    def _build_combined_area(self) -> QGroupBox:
-        group = QGroupBox("产品模板 / 模型标签")
+    def _build_detection_group(self) -> QGroupBox:
+        group = QGroupBox("Detection Config")
         layout = QVBoxLayout(group)
 
-        template_top = QHBoxLayout()
-        template_top.addWidget(QLabel("当前模板"))
-        self.template_combo = QComboBox()
-        self.template_combo.addItems(list(self.templates.keys()))
-        template_top.addWidget(self.template_combo, 1)
-        self.new_template_button = QPushButton("新建模板")
-        self.edit_template_button = QPushButton("编辑模板")
-        self.delete_template_button = QPushButton("删除模板")
-        self.save_template_button = QPushButton("保存当前")
-        template_top.addWidget(self.new_template_button)
-        template_top.addWidget(self.edit_template_button)
-        template_top.addWidget(self.delete_template_button)
-        template_top.addWidget(self.save_template_button)
-        layout.addLayout(template_top)
-
-        self.model_file_label = QLabel("模型文件：未加载")
-        self.model_file_label.setStyleSheet("color: #9d9d9d;")
-        layout.addWidget(self.model_file_label)
-
-        label_buttons = QHBoxLayout()
-        self.load_model_button = QPushButton("加载模型")
-        self.load_labels_button = QPushButton("加载标签")
-        self.clear_labels_button = QPushButton("清空")
-        label_buttons.addWidget(self.load_model_button)
-        label_buttons.addWidget(self.load_labels_button)
-        label_buttons.addWidget(self.clear_labels_button)
-        label_buttons.addStretch(1)
-        layout.addLayout(label_buttons)
-
-        self.label_table = QTableWidget(0, 1)
-        self.label_table.setHorizontalHeaderLabels(["标签名称"])
-        self.label_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.label_table.verticalHeader().setVisible(True)
-        self.label_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.label_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        layout.addWidget(self.label_table, 1)
-
-        self.template_combo.currentIndexChanged.connect(self._on_template_changed)
-        self.new_template_button.clicked.connect(self._new_template)
-        self.edit_template_button.clicked.connect(self._edit_template)
-        self.delete_template_button.clicked.connect(self._delete_template)
-        self.save_template_button.clicked.connect(self._save_current_template)
-        self.load_model_button.clicked.connect(self._load_model)
-        self.load_labels_button.clicked.connect(self._load_labels)
-        self.clear_labels_button.clicked.connect(self._clear_labels)
-        return group
-
-    def _build_template_area(self) -> QGroupBox:
-        group = QGroupBox("产品模板 / 配方")
-        layout = QVBoxLayout(group)
-
-        top = QHBoxLayout()
-        top.addWidget(QLabel("当前模板"))
-        self.template_combo = QComboBox()
-        self.template_combo.addItems(list(self.templates.keys()))
-        top.addWidget(self.template_combo, 1)
-
-        self.new_template_button = QPushButton("新建模板")
-        self.edit_template_button = QPushButton("编辑模板")
-        self.delete_template_button = QPushButton("删除模板")
-        self.save_template_button = QPushButton("保存当前")
-        top.addWidget(self.new_template_button)
-        top.addWidget(self.edit_template_button)
-        top.addWidget(self.delete_template_button)
-        top.addWidget(self.save_template_button)
-        layout.addLayout(top)
-
-        self.model_file_label = QLabel("模型文件：未加载")
-        self.model_file_label.setStyleSheet("color: #9d9d9d;")
-        layout.addWidget(self.model_file_label)
-
-        params = QHBoxLayout()
+        param_row = QHBoxLayout()
+        param_row.addWidget(QLabel("置信度"))
         self.confidence_spin = QDoubleSpinBox()
         self.confidence_spin.setRange(0.01, 1.0)
         self.confidence_spin.setSingleStep(0.05)
         self.confidence_spin.setValue(0.5)
+        param_row.addWidget(self.confidence_spin)
 
+        param_row.addWidget(QLabel("检测数量"))
         self.detection_count_spin = QSpinBox()
         self.detection_count_spin.setRange(1, 1000)
         self.detection_count_spin.setValue(20)
+        param_row.addWidget(self.detection_count_spin)
 
-        self.use_gesture_check = QCheckBox("使用手势")
-        self.gesture_combo = QComboBox()
-        self.gesture_combo.addItems(self.GESTURES)
-        self.gesture_combo.setEnabled(False)
+        self.spare_edit_1 = QLineEdit()
+        self.spare_edit_1.setPlaceholderText("备用参数1")
+        param_row.addWidget(QLabel("备用参数1"))
+        param_row.addWidget(self.spare_edit_1)
 
-        params.addWidget(QLabel("置信度"))
-        params.addWidget(self.confidence_spin)
-        params.addWidget(QLabel("检测数量"))
-        params.addWidget(self.detection_count_spin)
-        params.addWidget(self.use_gesture_check)
-        params.addWidget(QLabel("手势姿势"))
-        params.addWidget(self.gesture_combo)
-        params.addStretch(1)
-        layout.addLayout(params)
+        self.spare_edit_2 = QLineEdit()
+        self.spare_edit_2.setPlaceholderText("备用参数2")
+        param_row.addWidget(QLabel("备用参数2"))
+        param_row.addWidget(self.spare_edit_2)
 
-        self.template_combo.currentIndexChanged.connect(self._on_template_changed)
-        self.new_template_button.clicked.connect(self._new_template)
-        self.edit_template_button.clicked.connect(self._edit_template)
-        self.delete_template_button.clicked.connect(self._delete_template)
-        self.save_template_button.clicked.connect(self._save_current_template)
-        self.use_gesture_check.toggled.connect(self.gesture_combo.setEnabled)
+        self.spare_edit_3 = QLineEdit()
+        self.spare_edit_3.setPlaceholderText("备用参数3")
+        param_row.addWidget(QLabel("备用参数3"))
+        param_row.addWidget(self.spare_edit_3)
+
+        param_row.addStretch(1)
+        layout.addLayout(param_row)
+
+        enable_row = QHBoxLayout()
+        enable_row.addWidget(QLabel("启用项"))
+        self.enable_check_1 = QCheckBox("是否启用1")
+        self.enable_check_2 = QCheckBox("是否启用2")
+        self.enable_check_3 = QCheckBox("是否启用3")
+        self.enable_check_4 = QCheckBox("是否启用4")
+        self.enable_check_5 = QCheckBox("是否启用5")
+        for check in (
+            self.enable_check_1,
+            self.enable_check_2,
+            self.enable_check_3,
+            self.enable_check_4,
+            self.enable_check_5,
+        ):
+            enable_row.addWidget(self._wrap_with_border(check))
+        enable_row.addStretch(1)
+        layout.addLayout(enable_row)
+
+        function_grid = QGridLayout()
+        self.function_combo_1 = QComboBox()
+        self.function_combo_2 = QComboBox()
+        self.function_combo_3 = QComboBox()
+        self.function_combo_4 = QComboBox()
+        self.function_combo_5 = QComboBox()
+        function_combos = [
+            self.function_combo_1,
+            self.function_combo_2,
+            self.function_combo_3,
+            self.function_combo_4,
+            self.function_combo_5,
+        ]
+        for index, combo in enumerate(function_combos, start=1):
+            combo.addItems(self.FUNCTION_OPTIONS)
+            function_grid.addWidget(QLabel(f"功能选择{index}"), 0, index - 1)
+            function_grid.addWidget(combo, 1, index - 1)
+        layout.addLayout(function_grid)
+        layout.addStretch(1)
         return group
 
-    def _build_label_area(self) -> QGroupBox:
-        group = QGroupBox("模型标签")
+    @staticmethod
+    def _wrap_with_border(widget: QWidget) -> QFrame:
+        """给控件包一层带边框的容器，便于区分一组复选框。"""
+        container = QFrame()
+        container.setFrameShape(QFrame.Shape.NoFrame)
+        container.setStyleSheet(
+            "QFrame {"
+            " border: 1px solid #3c3c3c;"
+            " border-radius: 4px;"
+            " padding: 2px 6px;"
+            " background: #252526;"
+            "}"
+        )
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(widget)
+        return container
+
+    def _build_model_group(self) -> QGroupBox:
+        group = QGroupBox("Model Config")
         layout = QVBoxLayout(group)
 
-        buttons = QHBoxLayout()
-        self.load_model_button = QPushButton("加载模型")
-        self.load_labels_button = QPushButton("加载标签")
-        self.clear_labels_button = QPushButton("清空")
-        buttons.addWidget(self.load_model_button)
-        buttons.addWidget(self.load_labels_button)
-        buttons.addWidget(self.clear_labels_button)
-        buttons.addStretch(1)
-        layout.addLayout(buttons)
+        self.model_dir_label = QLabel("Model Config: 未创建")
+        self.model_dir_label.setWordWrap(True)
+        layout.addWidget(self.model_dir_label)
 
-        self.label_table = QTableWidget(0, 2)
-        self.label_table.setHorizontalHeaderLabels(["英文名称", "中文名称"])
-        self.label_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.label_table.verticalHeader().setVisible(True)
-        self.label_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.label_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        layout.addWidget(self.label_table, 1)
+        self.model_file_label = QLabel("模型文件：未加载")
+        self.model_file_label.setStyleSheet("color: #9d9d9d;")
+        layout.addWidget(self.model_file_label)
+
+        button_row = QHBoxLayout()
+        self.load_model_button = QPushButton("加载模型")
+        self.release_model_button = QPushButton("释放模型")
+        button_row.addWidget(self.load_model_button)
+        button_row.addWidget(self.release_model_button)
+        button_row.addStretch(1)
+        layout.addLayout(button_row)
 
         self.load_model_button.clicked.connect(self._load_model)
-        self.load_labels_button.clicked.connect(self._load_labels)
-        self.clear_labels_button.clicked.connect(self._clear_labels)
+        self.release_model_button.clicked.connect(self._release_model)
         return group
 
-    def _build_flow_area(self) -> QGroupBox:
-        group = QGroupBox("检测流程配置")
+    def _build_other_group(self) -> QGroupBox:
+        group = QGroupBox("Other Config")
         layout = QVBoxLayout(group)
 
-        hint = QLabel("每一行代表一个检测阶段；标签选择来自左侧英文标签。")
+        hint = QLabel("参数名称与参数值均可编辑，共 10 行。")
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
-        toolbar = QHBoxLayout()
-        self.toggle_label_button = QPushButton("隐藏模板/标签栏")
-        add_step = QPushButton("添加步骤")
-        delete_step = QPushButton("删除选中")
-        move_up = QPushButton("上移")
-        move_down = QPushButton("下移")
-        single_run = QPushButton("单次执行")
-        toolbar.addWidget(self.toggle_label_button)
-        toolbar.addSpacing(12)
-        toolbar.addWidget(add_step)
-        toolbar.addWidget(delete_step)
-        toolbar.addWidget(move_up)
-        toolbar.addWidget(move_down)
-        toolbar.addWidget(single_run)
-        toolbar.addStretch(1)
-        layout.addLayout(toolbar)
+        self.other_table = QTableWidget(10, 3)
+        self.other_table.setHorizontalHeaderLabels(["序号", "参数名称", "参数值"])
+        header = self.other_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.other_table.setColumnWidth(0, 48)
+        self.other_table.verticalHeader().setVisible(False)
+        layout.addWidget(self.other_table, 1)
 
-        self.flow_table = QTableWidget(0, 8)
-        self.flow_table.setHorizontalHeaderLabels(
-            ["步骤名称", "使用 ROI", "使用标签", "置信度分数", "检测数量", "使用手势", "手势姿势", "启用"]
-        )
-        header = self.flow_table.horizontalHeader()
-        for column in range(self.flow_table.columnCount()):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
-        header.setStretchLastSection(True)
-        header.setMinimumSectionSize(70)
-        header.setDefaultSectionSize(120)
-        self.flow_table.verticalHeader().setVisible(False)
-        self.flow_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.flow_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        layout.addWidget(self.flow_table, 1)
-
-        self.toggle_label_button.clicked.connect(self._toggle_label_panel)
-        add_step.clicked.connect(lambda: self._add_step())
-        delete_step.clicked.connect(self._delete_selected_step)
-        move_up.clicked.connect(lambda: self._move_step(-1))
-        move_down.clicked.connect(lambda: self._move_step(1))
-        single_run.clicked.connect(self._execute_selected_step)
+        self._populate_other_params([])
         return group
 
-    def _load_template(self, name: str) -> None:
-        template = self.templates.get(name)
-        if template is None:
-            return
-        self.current_template_name = name
+    def _load_template_list(self) -> None:
+        if not self.config_service.list_templates():
+            self._create_template("默认产品A")
+        self._refresh_template_list()
+
+    def _refresh_template_list(self, select_name: str | None = None) -> None:
+        names = self.config_service.list_templates()
+
+        self.template_combo.blockSignals(True)
+        self.template_combo.clear()
+        self.template_combo.addItems(names)
+        self.template_combo.blockSignals(False)
+
+        self.template_list.clear()
+        for name in names:
+            self.config_service.ensure_template_dirs(name)
+            self.template_list.addItem(QListWidgetItem(name))
+
+        if select_name and select_name in names:
+            self._set_current_template(select_name)
+        elif names:
+            self._set_current_template(names[0])
+
+    def _set_current_template(self, name: str) -> None:
         self.template_combo.blockSignals(True)
         self.template_combo.setCurrentText(name)
         self.template_combo.blockSignals(False)
+        self._sync_list_selection(name)
+        self._load_template(name)
 
-        self.model_file_label.setText(f"模型文件：{template.get('model_file') or '未加载'}")
-        self.roi_canvas.set_rois(deepcopy(template.get("rois", [])))
+    def _sync_list_selection(self, name: str) -> None:
+        items = self.template_list.findItems(name, Qt.MatchFlag.MatchExactly)
+        if items:
+            self.template_list.blockSignals(True)
+            self.template_list.setCurrentItem(items[0])
+            self.template_list.blockSignals(False)
 
-        self._populate_labels(template.get("labels", []))
-        self.flow_table.setRowCount(0)
-        for step in template.get("steps", []):
-            self._add_step(
-                step.get("name", "新步骤"),
-                step.get("roi", "全图"),
-                step.get("label", ""),
-                float(step.get("confidence", 0.5)),
-                int(step.get("detection_count", 20)),
-                bool(step.get("use_gesture", False)),
-                str(step.get("gesture", "无")),
-                bool(step.get("enabled", True)),
-            )
+    def _on_template_combo_changed(self, name: str) -> None:
+        if not name:
+            return
+        self._sync_list_selection(name)
+        self._load_template(name)
+
+    def _load_template(self, name: str) -> None:
+        data = self.config_service.load_template(name)
+        if not data:
+            data = _default_template(name)
+        self.templates[name] = data
+        self.current_template_name = name
+
+        model_dir = self.config_service.template_dir(name) / "Model Config"
+        self.model_dir_label.setText(f"Model Config: {model_dir}")
+        self.model_file_label.setText(f"模型文件：{data.get('model_file') or '未加载'}")
+
+        self.roi_canvas.set_rois(deepcopy(data.get("rois", [])))
+
+        detection = data.get("detection") or {}
+        self.confidence_spin.setValue(float(detection.get("confidence", 0.5)))
+        self.detection_count_spin.setValue(int(detection.get("detection_count", 20)))
+        self.spare_edit_1.setText(str(detection.get("spare_1", "")))
+        self.spare_edit_2.setText(str(detection.get("spare_2", "")))
+        self.spare_edit_3.setText(str(detection.get("spare_3", "")))
+        self.enable_check_1.setChecked(bool(detection.get("enable_1", False)))
+        self.enable_check_2.setChecked(bool(detection.get("enable_2", False)))
+        self.enable_check_3.setChecked(bool(detection.get("enable_3", False)))
+        self.enable_check_4.setChecked(bool(detection.get("enable_4", False)))
+        self.enable_check_5.setChecked(bool(detection.get("enable_5", False)))
+        self.function_combo_1.setCurrentText(str(detection.get("function_1", "功能1")))
+        self.function_combo_2.setCurrentText(str(detection.get("function_2", "功能2")))
+        self.function_combo_3.setCurrentText(str(detection.get("function_3", "功能3")))
+        self.function_combo_4.setCurrentText(str(detection.get("function_4", "功能4")))
+        self.function_combo_5.setCurrentText(str(detection.get("function_5", "功能5")))
+
+        self._populate_other_params(data.get("other_params", []))
 
         self.set_result(f"检测结果：模板「{name}」已加载")
-        self.set_tip("操作提示：先选择或新建模板，再配置模型、标签和检测步骤。")
+        self.set_tip("操作提示：配置完成后点击“保存当前模板”写入模板目录。")
 
-    def _on_template_changed(self) -> None:
-        name = self.template_combo.currentText()
-        if not name or name == self.current_template_name:
-            return
-        self._save_current_template()
-        self._load_template(name)
+    def set_roi_image(self, pixmap) -> None:
+        """接收相机管理页广播的图像，用于 ROI 配置区实时显示。"""
+        self.roi_canvas.set_pixmap(pixmap)
 
     def _new_template(self) -> None:
         name, ok = QInputDialog.getText(self, "新建模板", "请输入模板名称：")
         if not ok or not name.strip():
             return
         name = name.strip()
-        if name in self.templates:
+        self._save_current_template()
+        if self._create_template(name):
+            self._refresh_template_list(name)
+
+    def _create_template(self, name: str) -> bool:
+        name = name.strip()
+        if not name:
+            return False
+        if name in self.config_service.list_templates():
+            QMessageBox.warning(self, "提示", "模板名称已存在。")
+            return False
+        self._persist_template(name, _default_template(name))
+        return True
+
+    def _copy_template(self) -> None:
+        current = self.template_list.currentItem()
+        if current is None:
+            QMessageBox.information(self, "提示", "请先在列表中选择要复制的模板。")
+            return
+        source = current.text()
+        target, ok = QInputDialog.getText(self, "复制模板", "请输入复制后的模板名称：")
+        if not ok or not target.strip():
+            return
+        target = target.strip()
+        if target in self.config_service.list_templates():
             QMessageBox.warning(self, "提示", "模板名称已存在。")
             return
+
         self._save_current_template()
-        self.templates[name] = _default_template(name)
-        self.template_combo.blockSignals(True)
-        self.template_combo.addItem(name)
-        self.template_combo.blockSignals(False)
-        self._load_template(name)
-
-    def _edit_template(self) -> None:
-        name = self.template_combo.currentText()
-        new_name, ok = QInputDialog.getText(self, "编辑模板", "模板名称：", text=name)
-        if not ok or not new_name.strip():
+        try:
+            self.config_service.copy_template(source, target)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "复制失败", str(exc))
             return
-        new_name = new_name.strip()
-        if new_name != name and new_name in self.templates:
-            QMessageBox.warning(self, "提示", "模板名称已存在。")
-            return
-
-        model_file, _ = QFileDialog.getOpenFileName(
-            self,
-            "选择模型文件",
-            "",
-            "模型文件 (*.pt *.pth *.onnx *.engine *.bin);;所有文件 (*.*)",
-        )
-        self._save_current_template()
-        data = self.templates.pop(name)
-        data["name"] = new_name
-        if model_file:
-            data["model_file"] = model_file
-        self.templates[new_name] = data
-
-        self.template_combo.blockSignals(True)
-        index = self.template_combo.findText(name)
-        if index >= 0:
-            self.template_combo.setItemText(index, new_name)
-        self.template_combo.blockSignals(False)
-        self._load_template(new_name)
+        self._refresh_template_list(target)
 
     def _delete_template(self) -> None:
-        if len(self.templates) <= 1:
+        current = self.template_list.currentItem()
+        if current is None:
+            QMessageBox.information(self, "提示", "请先在列表中选择要删除的模板。")
+            return
+        name = current.text()
+        if len(self.config_service.list_templates()) <= 1:
             QMessageBox.information(self, "提示", "至少需要保留一个产品模板。")
             return
-        name = self.template_combo.currentText()
+
         answer = QMessageBox.question(
             self,
             "删除模板",
-            f"确定删除模板「{name}」吗？",
+            f"确定删除模板「{name}」及其目录吗？",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-
-        self.templates.pop(name, None)
-        self.template_combo.blockSignals(True)
-        index = self.template_combo.findText(name)
-        if index >= 0:
-            self.template_combo.removeItem(index)
-        self.template_combo.blockSignals(False)
-        self._load_template(self.template_combo.currentText())
+        if self.config_service.delete_template(name):
+            self.templates.pop(name, None)
+            self._refresh_template_list()
+        else:
+            QMessageBox.warning(self, "删除失败", "未能删除该模板目录。")
 
     def _save_current_template(self) -> None:
         name = self.current_template_name
-        if name not in self.templates:
+        if not name:
             return
-        self.templates[name].update(
+        data = self.templates.get(name, _default_template(name))
+        data.update(
             {
-                "labels": self._collect_labels(),
-                "steps": self._collect_steps(),
+                "name": name,
                 "rois": self.roi_canvas.get_rois(),
+                "detection": {
+                    "confidence": self.confidence_spin.value(),
+                    "detection_count": self.detection_count_spin.value(),
+                    "spare_1": self.spare_edit_1.text().strip(),
+                    "spare_2": self.spare_edit_2.text().strip(),
+                    "spare_3": self.spare_edit_3.text().strip(),
+                    "enable_1": self.enable_check_1.isChecked(),
+                    "enable_2": self.enable_check_2.isChecked(),
+                    "enable_3": self.enable_check_3.isChecked(),
+                    "enable_4": self.enable_check_4.isChecked(),
+                    "enable_5": self.enable_check_5.isChecked(),
+                    "function_1": self.function_combo_1.currentText(),
+                    "function_2": self.function_combo_2.currentText(),
+                    "function_3": self.function_combo_3.currentText(),
+                    "function_4": self.function_combo_4.currentText(),
+                    "function_5": self.function_combo_5.currentText(),
+                },
+                "other_params": self._collect_other_params(),
             }
         )
-        self._save_template_to_flow_dir(name)
-        self.set_tip(f"操作提示：模板「{name}」已保存当前配置。")
+        self.templates[name] = data
+        self._persist_template(name, data)
+        self.set_tip(f"操作提示：模板「{name}」已保存到模板目录。")
 
-    def _roi_options(self) -> list[str]:
-        options = ["全图"]
-        for roi in self.roi_canvas.get_rois():
-            name = roi.get("name")
-            if name:
-                options.append(name)
-        return options
+    def _persist_template(self, name: str, data: dict) -> None:
+        payload = {
+            "name": data.get("name", name),
+            "model_file": data.get("model_file", ""),
+            "rois": data.get("rois", []),
+            "detection": data.get("detection", {}),
+            "other_params": data.get("other_params", []),
+        }
+        self.config_service.save_template(name, payload)
+        self.config_service.ensure_template_dirs(name)
+        self.config_service.save_template_category(name, "ROI Config", "roi.yaml", {"rois": payload["rois"]})
+        self.config_service.save_template_category(name, "Detection Config", "detection.yaml", {"detection": payload["detection"]})
+        self.config_service.save_template_category(name, "Model Config", "model.yaml", {"model_file": payload["model_file"]})
+        self.config_service.save_template_category(name, "Other Config", "other.yaml", {"other_params": payload["other_params"]})
 
     def _open_roi_editor(self) -> None:
-        dialog = RoiEditorDialog(self.roi_canvas.get_rois(), self)
+        dialog = RoiEditorDialog(
+            self.roi_canvas.get_rois(),
+            self,
+            pixmap=self.roi_canvas.pixmap(),
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         self.roi_canvas.set_rois(dialog.selected_rois())
         if self.current_template_name in self.templates:
             self.templates[self.current_template_name]["rois"] = self.roi_canvas.get_rois()
-        self.set_tip("操作提示：ROI 配置已更新，点击“保存当前”可写入 flow 目录。")
-
-    def _save_template_to_flow_dir(self, template_name: str) -> None:
-        """将模板保存到 flow/<模板名>/template.yaml。
-
-        该目录名作为查询顶级索引，目录内保存模型、标签、ROI 和流程配置。
-        """
-        template = self.templates.get(template_name)
-        if template is None:
-            return
-        self.config_service.save_template(
-            template_name,
-            {
-                "name": template.get("name", template_name),
-                "model_file": template.get("model_file", ""),
-                "labels": template.get("labels", []),
-                "rois": template.get("rois", []),
-                "steps": template.get("steps", []),
-            },
-        )
-
-    def auto_save_config(self) -> None:
-        self._save_current_template()
+        self.set_tip("操作提示：ROI 配置已更新，点击“保存当前模板”可写入模板目录。")
 
     def _load_model(self) -> None:
-        # 插入点：实际模型加载器（ONNX Runtime / OpenVINO / TensorRT）可在此替换。
+        if not self.current_template_name:
+            self.set_tip("操作提示：请先选择模板。")
+            return
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "加载模型",
@@ -495,257 +547,45 @@ class FlowPage(BasePage):
         self.model_file_label.setText(f"模型文件：{file_path}")
         self.set_result(f"检测结果：模型已加载：{file_path}")
 
-    def _load_labels(self) -> None:
-        # 插入点：可从模型元数据或标注文件读取标签，替换下面的默认/文本读取逻辑。
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "加载标签",
-            "",
-            "标签文件 (*.txt *.names *.json);;所有文件 (*.*)",
-        )
-        if file_path:
-            labels = []
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        name = line.strip()
-                        if name:
-                            labels.append(name)
-            except OSError:
-                labels = ["person", "helmet"]
-            self.templates[self.current_template_name]["labels"] = labels
-            self._populate_labels(labels)
-        else:
-            self._populate_labels(self.templates[self.current_template_name]["labels"])
-
-    def _clear_labels(self) -> None:
-        self.templates[self.current_template_name]["labels"] = []
-        self.label_table.setRowCount(0)
-
-    def _populate_labels(self, labels: list[str]) -> None:
-        self.label_table.setRowCount(0)
-        for english in labels:
-            row = self.label_table.rowCount()
-            self.label_table.insertRow(row)
-
-            english_item = QTableWidgetItem(english)
-            english_item.setFlags(english_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            english_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.label_table.setItem(row, 0, english_item)
-
-    def _collect_labels(self) -> list[str]:
-        labels = []
-        for row in range(self.label_table.rowCount()):
-            item = self.label_table.item(row, 0)
-            english = item.text().strip() if item else ""
-            if english:
-                labels.append(english)
-        return labels
-
-    def _add_step(
-        self,
-        step_name: str = "新步骤",
-        roi: str | None = None,
-        label: str | None = None,
-        confidence: float = 0.5,
-        detection_count: int = 20,
-        use_gesture: bool = False,
-        gesture: str = "无",
-        enabled: bool = True,
-    ) -> None:
-        row = self.flow_table.rowCount()
-        self.flow_table.insertRow(row)
-
-        step_item = QTableWidgetItem(step_name)
-        step_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.flow_table.setItem(row, 0, step_item)
-
-        roi_combo = QComboBox()
-        roi_options = self._roi_options()
-        roi_combo.addItems(roi_options)
-        if roi in roi_options:
-            roi_combo.setCurrentText(roi)
-        self.flow_table.setCellWidget(row, 1, roi_combo)
-
-        label_combo = QComboBox()
-        labels = self._collect_labels()
-        label_combo.addItems(labels or ["未定义标签"])
-        if label in labels:
-            label_combo.setCurrentText(label)
-        self.flow_table.setCellWidget(row, 2, label_combo)
-
-        confidence_spin = QDoubleSpinBox()
-        confidence_spin.setRange(0.01, 1.0)
-        confidence_spin.setSingleStep(0.05)
-        confidence_spin.setValue(confidence)
-        self.flow_table.setCellWidget(row, 3, confidence_spin)
-
-        detection_count_spin = QSpinBox()
-        detection_count_spin.setRange(1, 1000)
-        detection_count_spin.setValue(detection_count)
-        self.flow_table.setCellWidget(row, 4, detection_count_spin)
-
-        use_gesture_check = QCheckBox()
-        use_gesture_check.setChecked(use_gesture)
-        self.flow_table.setCellWidget(row, 5, self._centered_checkbox(use_gesture_check))
-
-        gesture_combo = QComboBox()
-        gesture_combo.addItems(self.GESTURES)
-        gesture_combo.setCurrentText(gesture)
-        gesture_combo.setEnabled(use_gesture)
-        use_gesture_check.toggled.connect(gesture_combo.setEnabled)
-        self.flow_table.setCellWidget(row, 6, gesture_combo)
-
-        enabled_check = QCheckBox()
-        enabled_check.setChecked(enabled)
-        self.flow_table.setCellWidget(row, 7, self._centered_checkbox(enabled_check))
-        self.flow_table.setRowHeight(row, 36)
-
-    @staticmethod
-    def _centered_checkbox(checkbox: QCheckBox) -> QWidget:
-        widget = QWidget()
-        layout = QHBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(checkbox)
-        return widget
-
-    def _collect_steps(self) -> list[dict]:
-        steps = []
-        for row in range(self.flow_table.rowCount()):
-            name_item = self.flow_table.item(row, 0)
-            roi_widget = self.flow_table.cellWidget(row, 1)
-            label_widget = self.flow_table.cellWidget(row, 2)
-            confidence_widget = self.flow_table.cellWidget(row, 3)
-            detection_count_widget = self.flow_table.cellWidget(row, 4)
-            use_gesture_widget = self.flow_table.cellWidget(row, 5)
-            gesture_widget = self.flow_table.cellWidget(row, 6)
-            enabled_widget = self.flow_table.cellWidget(row, 7)
-            enabled = self._checkbox_value(enabled_widget, True)
-            steps.append(
-                {
-                    "name": name_item.text() if name_item else "新步骤",
-                    "roi": roi_widget.currentText() if isinstance(roi_widget, QComboBox) else "全图",
-                    "label": label_widget.currentText() if isinstance(label_widget, QComboBox) else "",
-                    "confidence": confidence_widget.value() if isinstance(confidence_widget, QDoubleSpinBox) else 0.5,
-                    "detection_count": detection_count_widget.value() if isinstance(detection_count_widget, QSpinBox) else 20,
-                    "use_gesture": self._checkbox_value(use_gesture_widget, False),
-                    "gesture": gesture_widget.currentText() if isinstance(gesture_widget, QComboBox) else "无",
-                    "enabled": enabled,
-                }
-            )
-        return steps
-
-    @staticmethod
-    def _checkbox_value(widget: QWidget | None, default: bool) -> bool:
-        if widget is None:
-            return default
-        checkbox = widget.findChild(QCheckBox)
-        return checkbox.isChecked() if checkbox is not None else default
-
-    def _execute_selected_step(self) -> None:
-        row = self.flow_table.currentRow()
-        if row < 0:
-            QMessageBox.information(self, "提示", "请先选中要执行的检测步骤。")
+    def _release_model(self) -> None:
+        if not self.current_template_name:
+            self.set_tip("操作提示：请先选择模板。")
             return
+        self.templates[self.current_template_name]["model_file"] = ""
+        self.model_file_label.setText("模型文件：未加载")
+        self.set_result("检测结果：模型已释放")
 
-        box = QMessageBox(self)
-        box.setWindowTitle("单次执行")
-        box.setText("请选择当前步骤的执行结果：")
-        ok_button = box.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
-        ng_button = box.addButton("NG", QMessageBox.ButtonRole.RejectRole)
-        box.exec()
+    def _populate_other_params(self, params: list[dict]) -> None:
+        self.other_table.setRowCount(10)
+        self.other_table.setColumnCount(3)
+        for row in range(10):
+            name = ""
+            value = ""
+            if row < len(params):
+                entry = params[row]
+                if isinstance(entry, dict):
+                    name = str(entry.get("name", ""))
+                    value = str(entry.get("value", ""))
+            seq_item = QTableWidgetItem(str(row + 1))
+            seq_item.setFlags(seq_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            seq_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.other_table.setItem(row, 0, seq_item)
+            self.other_table.setItem(row, 1, QTableWidgetItem(name))
+            self.other_table.setItem(row, 2, QTableWidgetItem(value))
 
-        if box.clickedButton() is ok_button:
-            self._set_row_color(row, "#3b7d5a")
-            self.set_tip("操作提示：当前步骤单次执行结果为 OK，已标记为绿色。")
-        elif box.clickedButton() is ng_button:
-            self._set_row_color(row, "#a38a3b")
-            self.set_tip("操作提示：当前步骤单次执行结果为 NG，已标记为黄色。")
+    def _collect_other_params(self) -> list[dict]:
+        params: list[dict] = []
+        for row in range(self.other_table.rowCount()):
+            name_item = self.other_table.item(row, 1)
+            value_item = self.other_table.item(row, 2)
+            name = name_item.text().strip() if name_item else ""
+            value = value_item.text().strip() if value_item else ""
+            if name:
+                params.append({"name": name, "value": value})
+        return params
 
-    def _set_row_color(self, row: int, color: str) -> None:
-        for column in range(self.flow_table.columnCount()):
-            item = self.flow_table.item(row, column)
-            if item is not None:
-                item.setBackground(QColor(color))
-            widget = self.flow_table.cellWidget(row, column)
-            if widget is not None:
-                widget.setStyleSheet(f"background-color: {color};")
-
-    def _delete_selected_step(self) -> None:
-        rows = sorted({index.row() for index in self.flow_table.selectedIndexes()}, reverse=True)
-        for row in rows:
-            self.flow_table.removeRow(row)
-
-    def _move_step(self, direction: int) -> None:
-        row = self.flow_table.currentRow()
-        target = row + direction
-        if row < 0 or target < 0 or target >= self.flow_table.rowCount():
-            return
-
-        source = [self._take_row_value(row, col) for col in range(self.flow_table.columnCount())]
-        target_data = [self._take_row_value(target, col) for col in range(self.flow_table.columnCount())]
-
-        for column in range(self.flow_table.columnCount()):
-            self._set_row_value(row, column, target_data[column])
-            self._set_row_value(target, column, source[column])
-
-        self.flow_table.setCurrentCell(target, 0)
-
-    def _take_row_value(self, row: int, col: int):
-        widget = self.flow_table.cellWidget(row, col)
-        if isinstance(widget, QComboBox):
-            return widget.currentText()
-        if isinstance(widget, QDoubleSpinBox):
-            return widget.value()
-        if isinstance(widget, QSpinBox):
-            return widget.value()
-        if isinstance(widget, QWidget):
-            checkbox = widget.findChild(QCheckBox)
-            if checkbox is not None:
-                return checkbox.isChecked()
-        item = self.flow_table.item(row, col)
-        return item.text() if item is not None else ""
-
-    def _set_row_value(self, row: int, column: int, value) -> None:
-        if column == 0:
-            item = self.flow_table.item(row, column)
-            if item is None:
-                item = QTableWidgetItem()
-                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.flow_table.setItem(row, column, item)
-            item.setText(str(value))
-            return
-
-        if column in (1, 2, 6):
-            combo = self.flow_table.cellWidget(row, column)
-            if isinstance(combo, QComboBox):
-                combo.setCurrentText(str(value))
-            return
-
-        if column == 3:
-            spin = self.flow_table.cellWidget(row, column)
-            if isinstance(spin, QDoubleSpinBox):
-                spin.setValue(float(value))
-            return
-
-        if column == 4:
-            spin = self.flow_table.cellWidget(row, column)
-            if isinstance(spin, QSpinBox):
-                spin.setValue(int(value))
-            return
-
-        if column in (5, 7):
-            checkbox_widget = self.flow_table.cellWidget(row, column)
-            if checkbox_widget is not None:
-                checkbox = checkbox_widget.findChild(QCheckBox)
-                if checkbox is not None:
-                    checkbox.setChecked(bool(value))
-
-    def _toggle_label_panel(self) -> None:
-        hidden = self.label_panel.isVisible()
-        self.label_panel.setVisible(not hidden)
-        self.toggle_label_button.setText("显示模板/标签栏" if hidden else "隐藏模板/标签栏")
+    def auto_save_config(self) -> None:
+        self._save_current_template()
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -22,23 +23,34 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from app.pages.base_page import BasePage
     from app.services.config_service import ConfigService
+    from app.services.log_service import LogService
 else:
     from .base_page import BasePage
     from ..services.config_service import ConfigService
+    from ..services.log_service import LogService
 
 
 class LogPage(BasePage):
+    """日志页。
+
+    仅加载并显示当天日志，界面最多显示最近 100 条；
+    日志按天写入项目根目录 log/YYYYMMDD.txt，使用逗号分隔格式。
+    """
+
+    MAX_DISPLAY_ROWS = 100
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
             "日志",
-            "查看系统运行日志，支持按级别筛选。",
+            "查看当天系统运行日志，支持按级别筛选。",
             parent,
         )
         self.config_service = ConfigService()
+        self.log_service = LogService()
         self._build_ui()
-        self._append_demo_logs()
-        self.set_result("检测结果：已加载演示日志")
-        self.set_tip("操作提示：可按级别筛选，后续可接入文件或数据库日志源。")
+        self._load_today_logs()
+        self.set_result("检测结果：已加载当天日志")
+        self.set_tip("操作提示：仅显示当天日志，最多 100 条；日志保存在项目根目录 log 目录。")
 
     def _build_ui(self) -> None:
         group = QGroupBox("运行日志")
@@ -78,26 +90,28 @@ class LogPage(BasePage):
 
         self.level_combo.currentTextChanged.connect(self._apply_filter)
         self.add_test_log_button.clicked.connect(self._add_random_log)
-        self.clear_button.clicked.connect(lambda: self.log_table.setRowCount(0))
+        self.clear_button.clicked.connect(self._clear_logs)
         self.export_button.clicked.connect(self._export_placeholder)
         self.save_filter_button.clicked.connect(self._save_filter_config)
 
-    def _append_demo_logs(self) -> None:
-        samples = [
-            ("INFO", "app", "应用启动"),
-            ("INFO", "camera", "相机初始化完成"),
-            ("WARN", "device", "设备心跳超时一次"),
-            ("ERROR", "camera", "相机取流失败：timeout"),
-            ("INFO", "flow", "检测流程已加载"),
-        ]
-        for level, source, message in samples:
-            self._append_log(level, source, message)
+    def _load_today_logs(self) -> None:
+        self.log_table.setRowCount(0)
+        for time_text, level, source, message in self.log_service.load_today(self.MAX_DISPLAY_ROWS):
+            self._add_row_to_table(time_text, level, source, message)
+        self._apply_filter(self.level_combo.currentText())
 
     def _append_log(self, level: str, source: str, message: str) -> None:
+        time_text = QDateTime.currentDateTime().toString("yyyy-MM-dd HH:mm:ss")
+        self.log_service.append(level, source, message)
+        self._add_row_to_table(time_text, level, source, message)
+        self._trim_to_latest()
+        self._apply_filter(self.level_combo.currentText())
+
+    def _add_row_to_table(self, time_text: str, level: str, source: str, message: str) -> None:
         row = self.log_table.rowCount()
         self.log_table.insertRow(row)
 
-        time_item = QTableWidgetItem(QDateTime.currentDateTime().toString("yyyy-MM-dd HH:mm:ss"))
+        time_item = QTableWidgetItem(time_text)
         level_item = QTableWidgetItem(level)
         source_item = QTableWidgetItem(source)
         message_item = QTableWidgetItem(message)
@@ -113,6 +127,10 @@ class LogPage(BasePage):
             self.log_table.setItem(row, column, item)
         self.log_table.scrollToBottom()
 
+    def _trim_to_latest(self) -> None:
+        while self.log_table.rowCount() > self.MAX_DISPLAY_ROWS:
+            self.log_table.removeRow(0)
+
     def _apply_filter(self, level: str) -> None:
         for row in range(self.log_table.rowCount()):
             item = self.log_table.item(row, 1)
@@ -126,12 +144,25 @@ class LogPage(BasePage):
         if level not in levels:
             level = "INFO"
         self._append_log(level, "demo", "这是一条测试日志")
-        self._apply_filter(self.level_combo.currentText())
+
+    def _clear_logs(self) -> None:
+        answer = QMessageBox.question(
+            self,
+            "清空日志",
+            "确定清空当天日志吗？该操作会删除当天的日志文件。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.log_service.clear_today()
+        self.log_table.setRowCount(0)
+        self.set_result("检测结果：当天日志已清空")
 
     def _export_placeholder(self) -> None:
-        # 插入点：将当前日志表接入 csv/xlsx 导出或远程日志服务。
-        self._append_log("INFO", "log", "导出 CSV：demo 占位，可在后续接入实际导出逻辑")
-        self._apply_filter(self.level_combo.currentText())
+        self.set_tip(
+            f"操作提示：当天日志已按 CSV 格式保存到 {self.log_service.today_file()}。"
+        )
 
     def _save_filter_config(self) -> None:
         self.config_service.save_page_config(

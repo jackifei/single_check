@@ -1,11 +1,5 @@
 name: 产品B
 model_file: ''
-labels:
-- person
-- helmet
-- glove
-- mask
-- defect
 rois:
 - name: ROI-1
   x: 50
@@ -17,20 +11,13 @@ rois:
   y: 90
   w: 220
   h: 160
-steps:
-- name: 第一次检测
-  roi: ROI-1
-  label: person
-  confidence: 0.55
+detection:
+  confidence: 0.5
   detection_count: 20
-  use_gesture: false
-  gesture: 无
-  enabled: true
-- name: 第二次检测
-  roi: ROI-2
-  label: defect
-  confidence: 0.45
-  detection_count: 30
-  use_gesture: true
-  gesture: OK
-  enabled: true
+  enable_1: false
+  enable_2: false
+  enable_3: false
+  enable_4: false
+  enable_5: false
+  function: 功能选择1
+other_params: []

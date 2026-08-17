@@ -1,41 +1,36 @@
 name: '123'
 model_file: ''
-labels:
-- - person
-  - 人员
-- - helmet
-  - 安全帽
-- - glove
-  - 手套
-- - mask
-  - 口罩
-- - defect
-  - 缺陷
 rois:
-- name: ROI-1
-  x: 50
-  y: 45
-  w: 200
-  h: 150
-- name: ROI-2
-  x: 330
-  y: 90
-  w: 220
-  h: 160
-steps:
-- name: 呜呜呜呜
-  roi: ROI-1
-  label: person
-  confidence: 0.55
+- name: ROI-5
+  shape: rect
+  cx: 320.0
+  cy: 240.0
+  w: 160.0
+  h: 120.0
+  angle: 0.0
+- name: ROI-6
+  shape: circle
+  cx: 464.7826086956522
+  cy: 247.82608695652172
+  radius: 60.0
+detection:
+  confidence: 0.5
   detection_count: 20
-  use_gesture: false
-  gesture: 无
-  enabled: true
-- name: 收到多少
-  roi: ROI-2
-  label: defect
-  confidence: 0.45
-  detection_count: 30
-  use_gesture: true
-  gesture: OK
-  enabled: true
+  spare_1: ''
+  spare_2: ''
+  spare_3: ''
+  enable_1: true
+  enable_2: true
+  enable_3: false
+  enable_4: false
+  enable_5: false
+  function_1: 功能1
+  function_2: 功能2
+  function_3: 功能3
+  function_4: 功能3
+  function_5: 功能5
+other_params:
+- name: '11'
+  value: '22'
+- name: '33'
+  value: '44'

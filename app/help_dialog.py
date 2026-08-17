@@ -22,7 +22,7 @@ HELP_CONTENT = """
 <ul>
   <li>顶部导航栏用于切换功能页面。</li>
   <li>每个页面上方显示检测结果和操作提示。</li>
-  <li>流程编辑页可管理产品模板、模型标签和检测步骤。</li>
+  <li>模板编辑页可管理产品模板、ROI Config、Detection Config、Model Config 和 Other Config。</li>
   <li>硬件配置页包含串口开关和 ModbusTCP IO 控制。</li>
   <li>结果查询页可按时间范围和状态筛选历史检测记录。</li>
 </ul>

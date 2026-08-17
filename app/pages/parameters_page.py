@@ -1,16 +1,22 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QTime, Qt
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
+    QLabel,
     QLineEdit,
     QPushButton,
     QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
+    QTimeEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -30,17 +36,21 @@ else:
 class ParametersPage(BasePage):
     """系统参数页。
 
-    相机参数已迁移到相机管理页，检测参数已迁移到流程编辑页，
-    此处只保留系统级参数。
+    相机参数已迁移到相机管理页，检测参数已迁移到模板编辑页；
+    此处包含系统参数、计数方式、班次时间和存储路径。
     """
+
+    SHIFT_COUNT = 6
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
             "参数",
-            "系统级参数设置。相机参数和检测参数已迁移到各自界面。",
+            "系统参数、OK/NG 计数方式、班次时间和存储路径。",
             parent,
         )
         self.config_service = ConfigService()
+        self.shift_start_edits: list[QTimeEdit] = []
+        self.shift_end_edits: list[QTimeEdit] = []
         self._build_ui()
         self._load_config()
         self.set_result("检测结果：系统参数已加载")
@@ -72,6 +82,8 @@ class ParametersPage(BasePage):
         form.addRow("日志级别", self.log_level_combo)
         form.addRow("", self.auto_save_check)
         layout.addWidget(system_group)
+
+        layout.addWidget(self._build_counting_group())
 
         storage_group = QGroupBox("存储路径")
         storage_form = QFormLayout(storage_group)
@@ -110,6 +122,49 @@ class ParametersPage(BasePage):
         self.result_dir_button.clicked.connect(self._choose_result_dir)
         self.data_dir_button.clicked.connect(self._choose_data_dir)
 
+    def _build_counting_group(self) -> QGroupBox:
+        group = QGroupBox("计数设置")
+        layout = QVBoxLayout(group)
+
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("OK/NG 计数方式"))
+        self.counting_mode_combo = QComboBox()
+        self.counting_mode_combo.addItem("日计数", "day")
+        self.counting_mode_combo.addItem("班计数", "shift")
+        mode_row.addWidget(self.counting_mode_combo)
+        mode_row.addStretch(1)
+        layout.addLayout(mode_row)
+
+        hint = QLabel("班计数模式下，清零时间按每班开始时间计算；日计数默认 0 点后进入第二天清零。")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        self.shift_table = QTableWidget(self.SHIFT_COUNT, 3)
+        self.shift_table.setHorizontalHeaderLabels(["班次", "开始时间", "结束时间"])
+        header = self.shift_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.shift_table.verticalHeader().setVisible(False)
+        self.shift_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.shift_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+        for index in range(self.SHIFT_COUNT):
+            name_item = QTableWidgetItem(f"班{index + 1}")
+            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            name_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.shift_table.setItem(index, 0, name_item)
+
+            start_edit = QTimeEdit(QTime(0, 0))
+            start_edit.setDisplayFormat("HH:mm")
+            end_edit = QTimeEdit(QTime(0, 0))
+            end_edit.setDisplayFormat("HH:mm")
+            self.shift_table.setCellWidget(index, 1, start_edit)
+            self.shift_table.setCellWidget(index, 2, end_edit)
+            self.shift_start_edits.append(start_edit)
+            self.shift_end_edits.append(end_edit)
+
+        layout.addWidget(self.shift_table)
+        return group
+
     def _save_config(self) -> None:
         self.config_service.save_page_config(
             "system",
@@ -119,6 +174,8 @@ class ParametersPage(BasePage):
                 "auto_save": self.auto_save_check.isChecked(),
                 "result_dir": self.result_dir_edit.text(),
                 "data_dir": self.data_dir_edit.text(),
+                "counting_mode": self.counting_mode_combo.currentData(),
+                "shifts": self._collect_shifts(),
             },
         )
         self.set_tip("操作提示：系统参数已保存到 config/system.yaml。")
@@ -132,6 +189,32 @@ class ParametersPage(BasePage):
         self.auto_save_check.setChecked(bool(data.get("auto_save", self.auto_save_check.isChecked())))
         self.result_dir_edit.setText(str(data.get("result_dir", "")))
         self.data_dir_edit.setText(str(data.get("data_dir", "")))
+        self.counting_mode_combo.setCurrentIndex(
+            self.counting_mode_combo.findData(data.get("counting_mode", "day"))
+        )
+        self._apply_shifts(data.get("shifts", []))
+
+    def _collect_shifts(self) -> list[dict]:
+        shifts: list[dict] = []
+        for index in range(self.SHIFT_COUNT):
+            shifts.append(
+                {
+                    "name": f"班{index + 1}",
+                    "start": self.shift_start_edits[index].time().toString("HH:mm"),
+                    "end": self.shift_end_edits[index].time().toString("HH:mm"),
+                }
+            )
+        return shifts
+
+    def _apply_shifts(self, shifts: list[dict]) -> None:
+        for index in range(self.SHIFT_COUNT):
+            shift = shifts[index] if index < len(shifts) else {}
+            start = QTime.fromString(str(shift.get("start", "00:00")), "HH:mm")
+            end = QTime.fromString(str(shift.get("end", "00:00")), "HH:mm")
+            if start.isValid():
+                self.shift_start_edits[index].setTime(start)
+            if end.isValid():
+                self.shift_end_edits[index].setTime(end)
 
     def _choose_result_dir(self) -> None:
         directory = QFileDialog.getExistingDirectory(self, "选择检测结果存储目录")
