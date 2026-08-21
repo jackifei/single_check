@@ -13,12 +13,15 @@ class ConfigService:
 
     页面配置保存到 config/<页面名>.yaml；
     流程模板保存到 flow/<模板名>/template.yaml。
+    AI 模型页配置保存到 flow/<模板名>/modelconfig/ 下。
 
     插入点：后续如需远程配置中心，可在此替换读写后端。
     """
 
     TEMPLATE_SUBDIRS = ("ROI Config", "Detection Config", "Model Config", "Other Config")
     LEGACY_TEMPLATE_SUBDIRS = ("ROI配置", "检测参数配置", "模型配置", "其他配置")
+    # AI 模型页专用目录（小写无空格，跟随用户要求）。
+    MODEL_CONFIG_DIR = "modelconfig"
 
     def __init__(self, root_dir: Path | None = None) -> None:
         if root_dir is not None:
@@ -59,6 +62,12 @@ class ConfigService:
 
     def template_dir(self, template_name: str) -> Path:
         directory = self.flow_dir / template_name
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory
+
+    def model_config_dir(self, template_name: str) -> Path:
+        """AI 模型页配置目录：flow/<模板名>/modelconfig。"""
+        directory = self.template_dir(template_name) / self.MODEL_CONFIG_DIR
         directory.mkdir(parents=True, exist_ok=True)
         return directory
 
@@ -114,6 +123,19 @@ class ConfigService:
             encoding="utf-8",
         )
         return path
+
+    def load_template_category(
+        self,
+        template_name: str,
+        category: str,
+        filename: str,
+    ) -> dict[str, Any]:
+        """读取模板目录下某一分类子目录中的 yaml 配置，不存在时返回空字典。"""
+        path = self.template_dir(template_name) / category / filename
+        if not path.exists():
+            return {}
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        return data if isinstance(data, dict) else {}
 
     def copy_template(self, source_name: str, target_name: str) -> Path:
         """复制整个模板目录到新模板名，并补齐配置子目录。"""

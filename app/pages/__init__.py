@@ -1,4 +1,5 @@
 from .base_page import BasePage
+from .ai_model_page import AIModelPage
 from .camera_page import CameraPage
 from .flow_page import FlowPage
 from .hardware_config_page import HardwareConfigPage
@@ -11,6 +12,7 @@ from .run_dashboard_page import RunDashboardPage
 
 __all__ = [
     "BasePage",
+    "AIModelPage",
     "CameraPage",
     "FlowPage",
     "HardwareConfigPage",

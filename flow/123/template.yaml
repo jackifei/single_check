@@ -3,8 +3,8 @@ model_file: ''
 rois:
 - name: ROI-5
   shape: rect
-  cx: 209.921875
-  cy: 137.08984375
+  cx: 521.19140625
+  cy: 128.60546875
   w: 160.0
   h: 120.0
   angle: 0.0

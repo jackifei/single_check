@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>AIModelPage</class>
+ <widget class="QWidget" name="AIModelPage">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>1280</width><height>760</height></rect></property>
+  <property name="styleSheet">
+   <string notr="true">QWidget { background-color: #1e1e1e; color: #d4d4d4; font-family: "Microsoft YaHei", "Segoe UI"; font-size: 13px; }
+QGroupBox { border: 1px solid #3c3c3c; border-radius: 4px; margin-top: 10px; padding-top: 10px; font-weight: 600; }
+QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; color: #dcdcdc; }
+QPushButton { background-color: #333333; border: 1px solid #555555; border-radius: 3px; padding: 6px 12px; color: #d4d4d4; }
+QPushButton:hover { background-color: #3c3c3c; }
+QPushButton:checked { background-color: #0e639c; border-color: #007acc; color: #ffffff; }
+QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox { background-color: #252526; border: 1px solid #3c3c3c; border-radius: 3px; padding: 4px 6px; }
+QTableWidget, QTableView, QListWidget { background-color: #252526; alternate-background-color: #2a2a2b; border: 1px solid #3c3c3c; gridline-color: #3c3c3c; }
+QHeaderView::section { background-color: #333333; color: #d4d4d4; border: none; border-right: 1px solid #3c3c3c; border-bottom: 1px solid #3c3c3c; padding: 6px; }
+QSplitter::handle { background-color: #3c3c3c; }
+QSplitter::handle:horizontal { width: 5px; }
+QWidget#detectionView { background-color: #111111; border: 1px solid #3c3c3c; border-radius: 4px; }
+QLabel#pageTip { color: #9d9d9d; font-size: 12px; }</string>
+  </property>
+  <layout class="QVBoxLayout" name="rootLayout">
+   <item>
+    <widget class="QGroupBox" name="templateGroup">
+     <property name="title"><string>模板选择</string></property>
+     <layout class="QHBoxLayout" name="templateLayout">
+      <item><widget class="QLabel" name="templateLabel"><property name="text"><string>当前模板</string></property></widget></item>
+      <item><widget class="QComboBox" name="templateCombo"/></item>
+      <item><widget class="QLabel" name="templateHint"><property name="text"><string>AI 模型配置跟随模板，保存到 flow/&lt;模板名&gt;/modelconfig</string></property></widget></item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QSplitter" name="mainSplitter">
+     <property name="orientation"><enum>Qt::Horizontal</enum></property>
+     <widget class="QScrollArea" name="configScroll">
+      <property name="widgetResizable"><bool>true</bool></property>
+      <widget class="QWidget" name="configContainer">
+       <layout class="QVBoxLayout" name="configLayout">
+        <item>
+         <widget class="QGroupBox" name="modelGroup">
+          <property name="title"><string>模型参数</string></property>
+          <layout class="QFormLayout" name="modelForm">
+           <item row="0" column="0"><widget class="QLabel" name="modelFileLabel"><property name="text"><string>模型文件</string></property></widget></item>
+           <item row="0" column="1">
+            <layout class="QHBoxLayout" name="modelFileRow">
+             <item><widget class="QLineEdit" name="modelFileEdit"/></item>
+             <item><widget class="QPushButton" name="modelBrowseButton"><property name="text"><string>浏览</string></property></widget></item>
+            </layout>
+           </item>
+           <item row="1" column="0"><widget class="QLabel" name="modelActionLabel"><property name="text"><string>操作</string></property></widget></item>
+           <item row="1" column="1">
+            <layout class="QHBoxLayout" name="modelActionRow">
+             <item><widget class="QPushButton" name="loadModelButton"><property name="text"><string>加载模型</string></property></widget></item>
+             <item><widget class="QPushButton" name="releaseModelButton"><property name="text"><string>释放模型</string></property></widget></item>
+            </layout>
+           </item>
+           <item row="2" column="0"><widget class="QLabel" name="backendLabel"><property name="text"><string>推理后端</string></property></widget></item>
+           <item row="2" column="1"><widget class="QComboBox" name="backendCombo"/></item>
+           <item row="3" column="0"><widget class="QLabel" name="deviceLabel"><property name="text"><string>推理设备</string></property></widget></item>
+           <item row="3" column="1"><widget class="QComboBox" name="deviceCombo"/></item>
+           <item row="4" column="0"><widget class="QLabel" name="inputSizeLabel"><property name="text"><string>输入尺寸</string></property></widget></item>
+           <item row="4" column="1">
+            <layout class="QHBoxLayout" name="inputSizeRow">
+             <item><widget class="QSpinBox" name="inputWSpin"/></item>
+             <item><widget class="QLabel" name="xLabel"><property name="text"><string>×</string></property></widget></item>
+             <item><widget class="QSpinBox" name="inputHSpin"/></item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="labelGroup">
+          <property name="title"><string>标签加载</string></property>
+          <layout class="QVBoxLayout" name="labelLayout">
+           <item>
+            <layout class="QHBoxLayout" name="labelFileRow">
+             <item><widget class="QLineEdit" name="labelFileEdit"/></item>
+             <item><widget class="QPushButton" name="labelBrowseButton"><property name="text"><string>浏览</string></property></widget></item>
+             <item><widget class="QPushButton" name="loadLabelsButton"><property name="text"><string>加载标签</string></property></widget></item>
+            </layout>
+           </item>
+           <item><widget class="QListWidget" name="labelsList"/></item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="thresholdGroup">
+          <property name="title"><string>阈值设置</string></property>
+          <layout class="QVBoxLayout" name="thresholdLayout">
+           <item>
+            <layout class="QHBoxLayout" name="thresholdTop">
+             <item><widget class="QLabel" name="confidenceLabel"><property name="text"><string>全局置信度</string></property></widget></item>
+             <item><widget class="QDoubleSpinBox" name="confidenceSpin"/></item>
+             <item><widget class="QLabel" name="iouLabel"><property name="text"><string>NMS IoU</string></property></widget></item>
+             <item><widget class="QDoubleSpinBox" name="iouSpin"/></item>
+             <item><widget class="QPushButton" name="resetThresholdButton"><property name="text"><string>全部恢复为全局阈值</string></property></widget></item>
+            </layout>
+           </item>
+           <item><widget class="QLabel" name="thresholdHint"><property name="text"><string>按类别阈值可单独调整；留空或解析失败时使用全局置信度。</string></property></widget></item>
+           <item><widget class="QTableWidget" name="thresholdTable"/></item>
+          </layout>
+         </widget>
+        </item>
+        <item><widget class="QPushButton" name="saveButton"><property name="text"><string>保存模型配置</string></property></widget></item>
+       </layout>
+      </widget>
+     </widget>
+     <widget class="QGroupBox" name="testGroup">
+      <property name="title"><string>手动测试</string></property>
+      <layout class="QVBoxLayout" name="testLayout">
+       <item>
+        <layout class="QHBoxLayout" name="testButtons">
+         <item><widget class="QPushButton" name="openImageButton"><property name="text"><string>打开测试图像</string></property></widget></item>
+         <item><widget class="QPushButton" name="useCameraButton"><property name="text"><string>使用相机画面</string></property></widget></item>
+         <item><widget class="QPushButton" name="detectButton"><property name="text"><string>开始检测</string></property></widget></item>
+         <item><widget class="QPushButton" name="clearButton"><property name="text"><string>清空结果</string></property></widget></item>
+        </layout>
+       </item>
+       <item><widget class="QWidget" name="detectionView"/></item>
+       <item><widget class="QLabel" name="detectStatusLabel"><property name="text"><string>检测状态：未检测</string></property></widget></item>
+       <item><widget class="QTableWidget" name="resultTable"/></item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

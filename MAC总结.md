@@ -23,7 +23,7 @@
 
 **当前阶段定位**：UI 与交互框架已搭建完成；USB 相机采集、配置读写、
 生产计数、日志落盘为真实逻辑；GIGE 相机、ModbusTCP、串口、MES、数据库、
-检测算法、流程引擎等仍为 demo / “插入点”占位。
+其它推理引擎（PyTorch/TensorRT）、流程引擎等仍为 demo / “插入点”占位。
 
 ---
 
@@ -88,7 +88,7 @@ single_check/
 │  ├─ 默认产品A/ 产品B/ 123/ 333/ 3333/ 999/
 ├─ log/                             # 按天运行日志 log/YYYYMMDD.txt（CSV 格式）
 ├─ checknum/                        # 生产计数状态与清零历史
-├─ algorithms/                      # 检测算法（仅占位，无实现）
+├─ algorithms/                      # 检测算法（已含 YOLO ONNX 检测引擎 detector.py）
 ├─ drivers/                         # 硬件/外部系统驱动
 │  ├─ camera/                       # USB 相机驱动（OpenCV，已实现）
 │  ├─ io/                           # Modbus/IO 驱动（仅 README）
@@ -100,8 +100,8 @@ single_check/
 │  ├─ standalone.py                 # 单页面独立运行工具
 │  ├─ theme.py                      # 全局暗黑主题 QSS
 │  ├─ checkdog/                     # 授权模块（独立于业务代码）
-│  ├─ pages/                        # 9 个功能页面
-│  ├─ widgets/                      # 可复用 UI 组件
+│  ├─ pages/                        # 10 个功能页面（含 AI 模型页）
+│  ├─ widgets/                      # 可复用 UI 组件（含检测结果视图）
 │  └─ services/                     # 配置/看板/日志/计数服务
 ├─ ui/                              # Qt Designer 基础 .ui 文件
 └─ oriui/                           # 贴近暗黑效果的 .ui 文件
@@ -112,13 +112,13 @@ single_check/
 | 目录 | 职责 |
 | --- | --- |
 | `app/pages` | 各功能页面，统一继承 `BasePage` |
-| `app/widgets` | 相机图像、ROI 画布、ROI 编辑弹窗、统计卡片 |
+| `app/widgets` | 相机图像、ROI 画布、ROI 编辑弹窗、统计卡片、检测结果视图 |
 | `app/services` | 配置读写、看板模拟数据、日志文件、生产计数 |
 | `app/checkdog` | 软件授权、机器绑定、到期控制（独立模块） |
 | `drivers` | 相机、IO、MES 硬件/外部系统驱动 |
-| `algorithms` | 检测算法（预留扩展位） |
+| `algorithms` | 检测算法（已含 YOLO ONNX 检测引擎 `detector.py`） |
 | `config` | 页面参数 YAML（`config/<页面名>.yaml`） |
-| `flow` | 产品模板（`flow/<模板名>/template.yaml` + 4 个子目录） |
+| `flow` | 产品模板（`flow/<模板名>/template.yaml` + 4 个子目录 + `modelconfig/`） |
 | `log` | 按天日志，CSV 逗号分隔 |
 | `checknum` | 计数状态 JSON + 清零历史 TXT |
 | `ui` / `oriui` | Qt Designer 设计参考文件 |
@@ -141,7 +141,7 @@ single_check/
 ### 5.1 顶部导航
 
 - 左侧“WS”应用标题。
-- 9 个互斥导航按钮（`QButtonGroup`），对应 9 个页面。
+- 10 个互斥导航按钮（`QButtonGroup`），对应 10 个页面。
 - 右侧全局操作提示标签 + “帮助”按钮。
 - 页面 `tip_changed` 信号同步到导航栏右侧的全局提示（节省页面空间）。
 
@@ -152,6 +152,7 @@ NAV_ITEMS = [
     ("相机管理", CameraPage),
     ("运行看板", RunDashboardPage),
     ("模板编辑", FlowPage),
+    ("AI模型", AIModelPage),
     ("硬件配置", HardwareConfigPage),
     ("结果查询", ResultQueryPage),
     ("MES对接", MesPage),
@@ -262,7 +263,26 @@ NAV_ITEMS = [
 - 模型加载只记录文件路径，未接入推理引擎。
 - 旧模板中的 `labels`、`steps`、`use_gesture`、`gesture` 字段当前版本已不使用，加载时忽略。
 
-### 7.4 硬件配置页（app/pages/hardware_config_page.py）
+### 7.4 AI 模型页（app/pages/ai_model_page.py）
+
+功能：
+
+- 模型参数：模型文件、推理后端（ONNX / PyTorch 预留 / TensorRT 预留）、
+  推理设备（CPU / CUDA 预留）、输入尺寸
+- 标签加载：支持 txt / names / yaml 标签文件，类别列表展示
+- 阈值设置：全局置信度、NMS IoU、按类别独立阈值
+- 手动测试：打开本地图像或使用相机画面，执行一次检测并叠加显示结果框与明细表
+- 配置跟随模板名称，保存到 `flow/<模板名>/modelconfig/`
+  （`model.yaml` / `labels.yaml` / `threshold.yaml`）
+
+实现状态：
+
+- 推理引擎 `algorithms/detector.py` 已实现 YOLO ONNX（OpenCV DNN），
+  支持 YOLOv5/YOLOv8 常见导出格式；后台线程推理，不阻塞界面。
+- 模板编辑页增删模板后，通过 `FlowPage.template_list_changed` 信号同步刷新本页模板列表。
+- 相机管理页最新画面由主窗口广播到本页，可一键“使用相机画面”手动测试。
+
+### 7.5 硬件配置页（app/pages/hardware_config_page.py）
 
 功能：
 
@@ -273,7 +293,7 @@ NAV_ITEMS = [
 
 实现状态：串口与 ModbusTCP 均为模拟逻辑，需在“插入点”接入真实串口库 / Modbus 驱动。
 
-### 7.5 结果查询页（app/pages/result_query_page.py）
+### 7.6 结果查询页（app/pages/result_query_page.py）
 
 功能：
 
@@ -284,7 +304,7 @@ NAV_ITEMS = [
 
 实现状态：数据为演示数据（`_append_demo_results`），未接数据库/文件检索；导出 CSV 为占位。
 
-### 7.6 MES 对接页（app/pages/mes_page.py）
+### 7.7 MES 对接页（app/pages/mes_page.py）
 
 功能：
 
@@ -295,7 +315,7 @@ NAV_ITEMS = [
 
 实现状态：全部为 demo/占位，真实 MES HTTP/WebSocket 客户端需在“插入点”接入。
 
-### 7.7 日志页（app/pages/log_page.py）
+### 7.8 日志页（app/pages/log_page.py）
 
 功能：
 
@@ -306,7 +326,7 @@ NAV_ITEMS = [
 
 实现状态：日志已真实写入 `log/YYYYMMDD.txt`（CSV 逗号分隔）；真实日志源未接。
 
-### 7.8 参数页（app/pages/parameters_page.py）
+### 7.9 参数页（app/pages/parameters_page.py）
 
 功能：
 
@@ -318,7 +338,7 @@ NAV_ITEMS = [
 说明：相机参数已迁移到相机管理页，检测参数已迁移到模板编辑页。
 班次时间被 `ProductionCounterService` 用于班计数清零判断。
 
-### 7.9 人员管理页（app/pages/personnel_page.py）
+### 7.10 人员管理页（app/pages/personnel_page.py）
 
 功能：
 
@@ -407,7 +427,13 @@ class MesDriver:
 
 ---
 
-## 11. 算法层（algorithms/）—— 预留
+## 11. 算法层（algorithms/）
+
+已实现：`detector.py` —— YOLO ONNX 检测引擎（OpenCV DNN）与后台检测线程
+`DetectionThread`，支持 YOLOv5（5+类别数 通道）/ YOLOv8（4+类别数 通道）
+常见导出格式，检测结果映射回原图坐标并做 NMS。
+
+预留扩展：PyTorch、TensorRT、分类、OCR、分割等引擎。
 
 建议统一检测接口：
 
@@ -548,12 +574,13 @@ pyinstaller -D main.py --noconfirm --windowed --icon=MyAppLog.ico --name SOP_APP
 
 | 模块 | 状态 | 说明 |
 | --- | --- | --- |
-| 主窗口 / 导航 / 状态栏 | 已实现 | 暗黑主题，9 页面切换 |
+| 主窗口 / 导航 / 状态栏 | 已实现 | 暗黑主题，10 页面切换 |
 | USB 相机采集 | 已实现 | OpenCV 枚举、打开、预览、拍照 |
 | GIGE 相机 | Demo | 需接真实 SDK |
 | 运行看板 | 部分实现 | 计数真实持久化，模板/设备展示为演示数据 |
 | 模板编辑 | 已实现（框架） | 模板/ROI/检测参数/模型/其他参数可编辑保存 |
-| 检测算法 | 预留 | `algorithms/` 无实现 |
+| AI 模型 | 已实现 | 按模板配置模型/标签/阈值，YOLO ONNX 手动测试 |
+| 检测算法 | 部分实现 | `algorithms/detector.py` 支持 YOLO ONNX；其它格式预留 |
 | 硬件配置（串口/Modbus/IO） | Demo | 全部为模拟逻辑 |
 | 结果查询 | Demo | 演示数据，导出占位 |
 | MES 对接 | Demo | 需接真实 MES 客户端 |
@@ -598,6 +625,7 @@ pyinstaller -D main.py --noconfirm --windowed --icon=MyAppLog.ico --name SOP_APP
 | 相机逻辑 | `app/pages/camera_page.py`、`drivers/camera/usb_camera.py` |
 | 运行看板 | `app/pages/run_dashboard_page.py`、`app/services/dashboard_service.py` |
 | 模板编辑 | `app/pages/flow_page.py`、`app/widgets/roi_canvas.py`、`app/widgets/roi_editor.py` |
+| AI 模型 | `app/pages/ai_model_page.py`、`algorithms/detector.py`、`app/widgets/detection_view.py` |
 | 硬件/IO | `app/pages/hardware_config_page.py`、`drivers/io/` |
 | 结果查询 | `app/pages/result_query_page.py` |
 | MES | `app/pages/mes_page.py`、`drivers/mes/` |

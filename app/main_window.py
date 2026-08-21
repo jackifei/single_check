@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 from .help_dialog import HelpDialog
 from .checkdog.license_manager import LicenseManager
 from .pages import (
+    AIModelPage,
     CameraPage,
     FlowPage,
     HardwareConfigPage,
@@ -35,6 +36,7 @@ NAV_ITEMS = [
     ("相机管理", CameraPage),
     ("运行看板", RunDashboardPage),
     ("模板编辑", FlowPage),
+    ("AI模型", AIModelPage),
     ("硬件配置", HardwareConfigPage),
     ("结果查询", ResultQueryPage),
     ("MES对接", MesPage),
@@ -84,6 +86,7 @@ class MainWindow(QMainWindow):
         self.camera_page: CameraPage | None = None
         self.dashboard_page: RunDashboardPage | None = None
         self.flow_page: FlowPage | None = None
+        self.ai_model_page: AIModelPage | None = None
         for _, page_class in NAV_ITEMS:
             page = page_class()
             self.pages.append(page)
@@ -101,11 +104,21 @@ class MainWindow(QMainWindow):
                 self._on_dashboard_template_changed(page.current_template_name)
             if isinstance(page, FlowPage):
                 self.flow_page = page
+            if isinstance(page, AIModelPage):
+                self.ai_model_page = page
 
         if self.camera_page is not None and self.dashboard_page is not None:
             self.camera_page.image_changed.connect(self.dashboard_page.set_image)
         if self.camera_page is not None and self.flow_page is not None:
             self.camera_page.image_changed.connect(self.flow_page.set_roi_image)
+        if self.camera_page is not None and self.ai_model_page is not None:
+            # 把相机管理页最新画面同步给 AI 模型页，供“使用相机画面”测试。
+            self.camera_page.image_changed.connect(self.ai_model_page.set_camera_pixmap)
+        if self.flow_page is not None and self.ai_model_page is not None:
+            # 模板编辑页新建/复制/删除模板后，AI 模型页模板列表同步刷新。
+            self.flow_page.template_list_changed.connect(
+                self.ai_model_page.refresh_templates
+            )
 
     def _build_nav_bar(self) -> QFrame:
         bar = QFrame()
