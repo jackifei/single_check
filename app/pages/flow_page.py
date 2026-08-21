@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -83,6 +83,8 @@ class FlowPage(BasePage):
     """
 
     FUNCTION_OPTIONS = ["功能1", "功能2", "功能3", "功能4", "功能5"]
+    # 模板列表变化信号：新建/复制/删除模板后发出，供 AI 模型页等同步刷新。
+    template_list_changed = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
@@ -344,6 +346,7 @@ class FlowPage(BasePage):
             self._set_current_template(select_name)
         elif names:
             self._set_current_template(names[0])
+        self.template_list_changed.emit()
 
     def _set_current_template(self, name: str) -> None:
         self.template_combo.blockSignals(True)

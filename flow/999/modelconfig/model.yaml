@@ -1,0 +1,5 @@
+model_file: ''
+backend: ONNX (OpenCV DNN)
+device: CPU
+input_width: 640
+input_height: 640
