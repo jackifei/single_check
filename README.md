@@ -42,12 +42,13 @@ pyinstaller -D main.py --noconfirm --windowed --icon=MyAppLog.ico --name single_
 
 ## 已实现内容
 
-- 顶部水平导航栏，包含 9 个功能页面和帮助按钮
+- 顶部水平导航栏，包含 10 个功能页面和帮助按钮
 - 底部 VSCode 风格状态栏，可动态设置状态项
 - 页面顶部不再显示页面名称，改为显示检测结果和操作提示
 - 相机管理页：左侧图像显示区、右侧参数设置区和 ROI 设置区，中间支持鼠标拖动调整宽度
 - 运行看板页：左侧相机画面与 ROI 显示，右侧流程步骤状态，展示当前模板、OK/NG、日/周/月统计和 OK 完成率
 - 流程编辑页：产品模板管理、模型加载、英文/中文标签映射、检测流程配置、置信度/检测数量/手势设置，标签栏可隐藏
+- AI 模型页：按模板配置模型参数、加载标签、设置全局/按类别阈值，支持打开本地图像或使用相机画面手动检测（ONNX 模型）
 - 硬件配置页：串口打开/关闭、固定串口参数，以及 ModbusTCP 的 16 路输入指示灯和 16 路输出开关
 - 结果查询页：按时间范围、产品、完成状态和报警状态筛选检测记录
 - MES 对接页：勾选上报报文类型，预留自定义报文模板
@@ -73,6 +74,8 @@ SOP/
 │  ├─ io/
 │  └─ mes/
 ├─ algorithms/
+│  ├─ __init__.py
+│  └─ detector.py      # YOLO ONNX 检测引擎与后台检测线程
 ├─ ui/
 │  ├─ camera_page.ui
 │  ├─ run_dashboard_page.ui
@@ -108,10 +111,12 @@ SOP/
    ├─ widgets/
    │  ├─ __init__.py
    │  ├─ camera_view.py
+   │  ├─ detection_view.py
    │  ├─ roi_canvas.py
    │  ├─ roi_editor.py
    │  └─ stat_card.py
    └─ pages/
+      ├─ ai_model_page.py
       ├─ base_page.py
       ├─ camera_page.py
       ├─ run_dashboard_page.py

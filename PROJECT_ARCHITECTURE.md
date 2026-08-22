@@ -31,6 +31,8 @@ SOP/
 │  ├─ io/
 │  └─ mes/
 ├─ algorithms/
+│  ├─ __init__.py
+│  └─ detector.py        # YOLO ONNX 检测引擎与后台检测线程
 └─ app/
    ├─ main_window.py
    ├─ status_bar.py
@@ -47,12 +49,12 @@ SOP/
 | 目录 | 职责 |
 | --- | --- |
 | `app/pages` | 各功能页面，继承 `BasePage` |
-| `app/widgets` | 可复用 UI 组件：统计卡片、相机视图、ROI 画布、ROI 编辑弹窗 |
+| `app/widgets` | 可复用 UI 组件：统计卡片、相机视图、ROI 画布、ROI 编辑弹窗、检测结果视图 |
 | `app/services` | 页面级服务：配置读写、看板模拟数据 |
 | `drivers` | 硬件/外部系统驱动：相机、IO、MES |
-| `algorithms` | 检测算法、图像处理算法 |
+| `algorithms` | 检测算法、图像处理算法（已含 YOLO ONNX 检测引擎 `detector.py`） |
 | `config` | 页面参数 YAML 配置 |
-| `flow` | 流程模板配置，以模板名作为顶级目录 |
+| `flow` | 流程模板配置，以模板名作为顶级目录；AI 模型配置在 `flow/<模板名>/modelconfig/` |
 | `ui` / `oriui` | Qt Designer 基础 UI 文件和暗黑预览 UI 文件 |
 
 ## 3. 页面注册方式
@@ -67,6 +69,7 @@ SOP/
 NAV_ITEMS = [
     ("相机管理", CameraPage),
     ("运行看板", RunDashboardPage),
+    ("AI模型", AIModelPage),
 ]
 ```
 
@@ -94,9 +97,24 @@ class BasePage(QWidget):
 class ConfigService:
     def save_page_config(page_name: str, data: dict) -> Path: ...
     def load_page_config(page_name: str) -> dict: ...
+    def save_template_category(template_name, category, filename, data) -> Path: ...
+    def load_template_category(template_name, category, filename) -> dict: ...
     def save_template(template_name: str, data: dict) -> Path: ...
     def load_template(template_name: str) -> dict: ...
 ```
+
+AI 模型页使用 `flow/<模板名>/modelconfig/`，包含：
+
+- `model.yaml`：模型路径、推理后端、设备、输入尺寸
+- `labels.yaml`：标签列表及标签文件来源
+- `threshold.yaml`：全局置信度、NMS IoU、按类别阈值
+
+### AI 模型页
+
+- 文件：`app/pages/ai_model_page.py`、`algorithms/detector.py`、`app/widgets/detection_view.py`
+- 配置跟随模板名称；模板编辑页增删模板时，通过 `FlowPage.template_list_changed` 信号同步刷新
+- 手动测试支持本地图像与相机画面（主窗口把 `CameraPage.image_changed` 广播过来）
+- 推理引擎为 YOLO ONNX（OpenCV DNN），支持 YOLOv5/YOLOv8 常见导出格式
 
 ### DashboardService
 
