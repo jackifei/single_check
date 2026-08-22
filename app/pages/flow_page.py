@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -71,6 +71,8 @@ class FlowPage(BasePage):
     左侧为产品模板管理，右侧 ROI Config 占满剩余区域；
     Detection Config、Model Config、Other Config 通过“编辑参数”弹窗编辑。
     """
+
+    template_list_changed = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
@@ -166,6 +168,7 @@ class FlowPage(BasePage):
 
     def _refresh_template_list(self, select_name: str | None = None) -> None:
         names = self.config_service.list_templates()
+        self.template_list_changed.emit()
 
         self.template_combo.blockSignals(True)
         self.template_combo.clear()
