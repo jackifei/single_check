@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QSplitter,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -25,11 +26,13 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from app.pages.base_page import BasePage
     from app.services.config_service import ConfigService
+    from app.widgets.calibration_panel import CalibrationPanel
     from app.widgets.camera_image_view import CameraImageView
     from drivers.camera.usb_camera import UsbCameraCaptureThread, UsbCameraDriver
 else:
     from .base_page import BasePage
     from ..services.config_service import ConfigService
+    from ..widgets.calibration_panel import CalibrationPanel
     from ..widgets.camera_image_view import CameraImageView
     from drivers.camera.usb_camera import UsbCameraCaptureThread, UsbCameraDriver
 
@@ -37,9 +40,7 @@ else:
 class CameraPage(BasePage):
     """相机管理页。
 
-    只负责相机枚举、打开/关闭、驱动选择和相机参数调整；
-    ROI 配置已迁移到模板编辑页。
-
+    左侧为图像显示与像素信息状态栏，右侧可在相机控制和标定功能之间切换。
     """
 
     camera_metrics_changed = pyqtSignal(dict)
@@ -48,7 +49,7 @@ class CameraPage(BasePage):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
             "相机管理",
-            "选择 USB/GIGE 相机、驱动并调整采集参数。",
+            "选择 USB/GIGE 相机、调整采集参数，或进行相机标定。",
             parent,
         )
         self.config_service = ConfigService()
@@ -56,6 +57,10 @@ class CameraPage(BasePage):
         self.usb_driver = UsbCameraDriver()
         self.capture_thread: UsbCameraCaptureThread | None = None
         self._last_frame_time = time.perf_counter()
+        self._image_size_text = "--"
+        self._mouse_xy_text = "--"
+        self._rgb_text = "--"
+        self._gray_text = "--"
         self._build_ui()
         self._load_config()
         self.set_result("检测结果：相机未连接")
@@ -71,21 +76,54 @@ class CameraPage(BasePage):
         splitter.addWidget(right)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 0)
-        splitter.setSizes([900, 360])
+        splitter.setSizes([900, 420])
         self.add_to_content(splitter, stretch=1)
 
     def _build_image_area(self) -> QWidget:
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
         self.image_view = CameraImageView()
         layout.addWidget(self.image_view, 1)
+
+        self.image_status_label = QLabel("图像尺寸：--    XY：--    RGB：--    灰度：--")
+        self.image_status_label.setObjectName("pageTip")
+        self.image_status_label.setStyleSheet("padding: 4px 6px; background: #252526;")
+        layout.addWidget(self.image_status_label)
+
+        self.image_view.pixel_info_changed.connect(self._on_pixel_info)
+        self.image_view.mouse_position_changed.connect(self._on_mouse_position)
         return container
 
     def _build_control_area(self) -> QWidget:
         container = QWidget()
         layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("功能"))
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("相机", 0)
+        self.mode_combo.addItem("标定", 1)
+        mode_row.addWidget(self.mode_combo, 1)
+        layout.addLayout(mode_row)
+
+        self.right_stack = QStackedWidget()
+        self.right_stack.addWidget(self._build_camera_control_page())
+        self.calibration_panel = CalibrationPanel()
+        self.right_stack.addWidget(self.calibration_panel)
+        layout.addWidget(self.right_stack, 1)
+
+        self.mode_combo.currentIndexChanged.connect(self.right_stack.setCurrentIndex)
+        self.image_view.image_point_clicked.connect(self.calibration_panel.handle_image_point)
+        return container
+
+    def _build_camera_control_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
@@ -104,7 +142,6 @@ class CameraPage(BasePage):
             "QComboBox { background-color: #123a56; color: #ffffff; border: 2px solid #4ec9b0; border-radius: 4px; padding: 4px 8px; font-weight: 600; }"
         )
         self.enumerate_button = QPushButton("枚举相机")
-
         self.open_camera_button = QPushButton("打开相机")
         self.open_camera_button.setCheckable(True)
 
@@ -121,9 +158,6 @@ class CameraPage(BasePage):
         preview_buttons.addWidget(self.start_preview_button)
         preview_buttons.addWidget(self.stop_preview_button)
         preview_buttons.addWidget(self.capture_button)
-        self.start_preview_button.clicked.connect(self._start_preview)
-        self.stop_preview_button.clicked.connect(self._stop_preview)
-        self.capture_button.clicked.connect(self._capture)
         preview_container = QWidget()
         preview_container.setLayout(preview_buttons)
         control_form.addRow("", preview_container)
@@ -131,7 +165,6 @@ class CameraPage(BasePage):
 
         self.open_local_image_button = QPushButton("打开本地图像")
         layout.addWidget(self.open_local_image_button)
-        self.open_local_image_button.clicked.connect(self._open_local_image)
 
         param_group = QGroupBox("相机参数")
         param_form = QFormLayout(param_group)
@@ -173,14 +206,39 @@ class CameraPage(BasePage):
 
         layout.addStretch(1)
 
+        self.start_preview_button.clicked.connect(self._start_preview)
+        self.stop_preview_button.clicked.connect(self._stop_preview)
+        self.capture_button.clicked.connect(self._capture)
+        self.open_local_image_button.clicked.connect(self._open_local_image)
         self.enumerate_button.clicked.connect(self._enumerate_cameras)
         self.open_camera_button.clicked.connect(self._toggle_camera)
         self.save_button.clicked.connect(self._save_config)
         self.center_cross_button.clicked.connect(self.image_view.center_cross)
-        return container
+        return page
+
+    def _on_pixel_info(self, rgb: str, gray: str) -> None:
+        self._rgb_text = rgb
+        self._gray_text = gray
+        self._refresh_image_status()
+
+    def _on_mouse_position(self, x: float, y: float) -> None:
+        if x < 0 or y < 0:
+            self._mouse_xy_text = "--"
+        else:
+            self._mouse_xy_text = f"{int(x)},{int(y)}"
+        self._refresh_image_status()
+
+    def _set_image_size_text(self, text: str) -> None:
+        self._image_size_text = text
+        self._refresh_image_status()
+
+    def _refresh_image_status(self) -> None:
+        self.image_status_label.setText(
+            f"图像尺寸：{self._image_size_text}    XY：{self._mouse_xy_text}"
+            f"    RGB：{self._rgb_text}    灰度：{self._gray_text}"
+        )
 
     def _enumerate_cameras(self) -> None:
-        # 插入点：接入具体相机 SDK 后，替换为真实设备枚举逻辑。
         camera_type = self.camera_type_combo.currentText()
         driver = self.driver_combo.currentText()
         self.camera_list_combo.clear()
@@ -221,6 +279,7 @@ class CameraPage(BasePage):
             )
         if not checked:
             self._emit_camera_metrics(0, "--")
+            self._set_image_size_text("--")
 
     def _open_local_image(self) -> None:
         file_path, _ = QFileDialog.getOpenFileName(
@@ -238,6 +297,7 @@ class CameraPage(BasePage):
         self._stop_preview()
         self.image_view.set_pixmap(pixmap)
         self.image_changed.emit(pixmap)
+        self._set_image_size_text(f"{pixmap.width()}x{pixmap.height()}")
         self._emit_camera_metrics(0, f"{pixmap.width()}x{pixmap.height()}")
         self.set_result(f"检测结果：已打开本地图像 {file_path}")
 
@@ -270,6 +330,7 @@ class CameraPage(BasePage):
         self.image_view.set_pixmap(pixmap)
         self.image_changed.emit(pixmap)
         height, width = frame.shape[:2]
+        self._set_image_size_text(f"{width}x{height}")
         self._emit_camera_metrics(1, f"{width}x{height}")
         self.set_result(f"检测结果：拍照完成，图像大小 {width}x{height}")
 
@@ -282,6 +343,7 @@ class CameraPage(BasePage):
         pixmap = self._frame_to_pixmap(frame)
         self.image_view.set_pixmap(pixmap)
         self.image_changed.emit(pixmap)
+        self._set_image_size_text(f"{width}x{height}")
         self._emit_camera_metrics(round(fps, 1), f"{width}x{height}")
 
     def _frame_to_pixmap(self, frame) -> QPixmap:
@@ -293,17 +355,19 @@ class CameraPage(BasePage):
         self.camera_metrics_changed.emit({"fps": fps, "image_size": image_size})
 
     def _save_config(self) -> None:
-        data = {
-            "camera_type": self.camera_type_combo.currentText(),
-            "driver": self.driver_combo.currentText(),
-            "camera": self.camera_list_combo.currentText(),
-            "exposure": self.exposure_spin.value(),
-            "gain": self.gain_spin.value(),
-            "frame_rate": self.frame_rate_spin.value(),
-            "trigger": self.trigger_combo.currentText(),
-            "pixel_format": self.pixel_format_combo.currentText(),
-        }
-        self.config_service.save_page_config("camera", data)
+        self.config_service.save_page_config(
+            "camera",
+            {
+                "camera_type": self.camera_type_combo.currentText(),
+                "driver": self.driver_combo.currentText(),
+                "camera": self.camera_list_combo.currentText(),
+                "exposure": self.exposure_spin.value(),
+                "gain": self.gain_spin.value(),
+                "frame_rate": self.frame_rate_spin.value(),
+                "trigger": self.trigger_combo.currentText(),
+                "pixel_format": self.pixel_format_combo.currentText(),
+            },
+        )
         self.set_tip("操作提示：相机配置已保存到 config/camera.yaml。")
 
     def _load_config(self) -> None:
@@ -320,6 +384,7 @@ class CameraPage(BasePage):
 
     def auto_save_config(self) -> None:
         self._save_config()
+        self.calibration_panel._save_calib_config()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._stop_preview()

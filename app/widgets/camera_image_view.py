@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QWidget
 
@@ -10,6 +10,10 @@ class CameraImageView(QWidget):
 
     支持鼠标滚轮缩放图像，并可拖动十字虚线。
     """
+
+    pixel_info_changed = pyqtSignal(str, str)
+    image_point_clicked = pyqtSignal(float, float)
+    mouse_position_changed = pyqtSignal(float, float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -105,12 +109,17 @@ class CameraImageView(QWidget):
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
         if event.button() == Qt.MouseButton.LeftButton:
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                image_point = self._widget_to_image(event.position())
+                self.image_point_clicked.emit(image_point.x(), image_point.y())
             cross_point = self._cross_image_point()
             distance = (event.position().toPoint() - cross_point).manhattanLength()
             if distance <= 24:
                 self._dragging_cross = True
 
     def mouseMoveEvent(self, event) -> None:
+        self._emit_pixel_info(event.position())
+        self._emit_mouse_position(event.position())
         if self._panning:
             delta = event.position() - self._last_pan_pos
             self._pan_offset += delta
@@ -156,3 +165,38 @@ class CameraImageView(QWidget):
             image_rect.width() * self._cross_ratio.x(),
             image_rect.height() * self._cross_ratio.y(),
         ).toPoint()
+
+    def _widget_to_image(self, point: QPointF) -> QPointF:
+        image_rect = self._image_rect()
+        if self._pixmap is None or image_rect.isNull():
+            return QPointF(point)
+        return QPointF(
+            (point.x() - image_rect.left()) / image_rect.width() * self._pixmap.width(),
+            (point.y() - image_rect.top()) / image_rect.height() * self._pixmap.height(),
+        )
+
+    def pixel_info_at(self, point: QPointF) -> tuple[str, str]:
+        if self._pixmap is None or self._pixmap.isNull():
+            return "--", "--"
+        image_rect = self._image_rect()
+        if image_rect.isNull() or not image_rect.contains(point):
+            return "--", "--"
+        image = self._pixmap.toImage()
+        x = int((point.x() - image_rect.left()) / image_rect.width() * self._pixmap.width())
+        y = int((point.y() - image_rect.top()) / image_rect.height() * self._pixmap.height())
+        x = max(0, min(image.width() - 1, x))
+        y = max(0, min(image.height() - 1, y))
+        color = image.pixelColor(x, y)
+        gray = round(0.299 * color.red() + 0.587 * color.green() + 0.114 * color.blue())
+        return f"{color.red()},{color.green()},{color.blue()}", f"{gray}"
+
+    def _emit_pixel_info(self, point: QPointF) -> None:
+        rgb, gray = self.pixel_info_at(point)
+        self.pixel_info_changed.emit(rgb, gray)
+
+    def _emit_mouse_position(self, point: QPointF) -> None:
+        if self._pixmap is None or self._pixmap.isNull():
+            self.mouse_position_changed.emit(-1.0, -1.0)
+            return
+        image_point = self._widget_to_image(point)
+        self.mouse_position_changed.emit(image_point.x(), image_point.y())

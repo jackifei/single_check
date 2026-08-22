@@ -16,7 +16,7 @@ rois:
 detection:
   confidence: 0.45
   detection_count: 18
-  spare_1: ''
+  spare_1: '123'
   spare_2: ''
   spare_3: ''
   enable_1: true

@@ -20,7 +20,7 @@ detection:
   detection_count: 20
   spare_1: ''
   spare_2: ''
-  spare_3: ''
+  spare_3: '333'
   enable_1: false
   enable_2: false
   enable_3: false
