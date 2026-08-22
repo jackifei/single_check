@@ -1,6 +1,6 @@
 detection:
-  confidence: 0.5
-  detection_count: 20
+  confidence: 0.45
+  detection_count: 18
   spare_1: ''
   spare_2: ''
   spare_3: ''

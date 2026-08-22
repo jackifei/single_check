@@ -1,24 +1,34 @@
-name: '999'
+name: '333'
 model_file: ''
-labels:
-- person
-- helmet
-- glove
-- mask
-- defect
 rois:
 - name: ROI-1
-  x: 50
-  y: 45
-  w: 200
-  h: 150
+  shape: rect
+  cx: 150.0
+  cy: 120.0
+  w: 200.0
+  h: 150.0
+  angle: 0.0
 - name: ROI-2
-  x: 330
-  y: 90
-  w: 220
-  h: 160
+  shape: rect
+  cx: 440.0
+  cy: 170.0
+  w: 220.0
+  h: 160.0
+  angle: 0.0
 detection:
   confidence: 0.5
   detection_count: 20
-  use_gesture: false
-  gesture: 无
+  spare_1: ''
+  spare_2: ''
+  spare_3: ''
+  enable_1: false
+  enable_2: false
+  enable_3: false
+  enable_4: false
+  enable_5: false
+  function_1: 功能1
+  function_2: 功能2
+  function_3: 功能3
+  function_4: 功能4
+  function_5: 功能5
+other_params: []
