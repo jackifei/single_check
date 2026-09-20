@@ -2,10 +2,10 @@
   "ok": 0,
   "ng": 0,
   "day": 0,
-  "week": 46,
-  "month": 46,
-  "last_ok_reset": "2026-08-23",
-  "last_day_reset": "2026-08-23",
-  "last_week_reset": "2026-08-17",
-  "last_month_reset": "2026-08-01"
+  "week": 0,
+  "month": 0,
+  "last_ok_reset": "2026-09-20",
+  "last_day_reset": "2026-09-20",
+  "last_week_reset": "2026-09-14",
+  "last_month_reset": "2026-09-01"
 }
