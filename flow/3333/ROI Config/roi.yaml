@@ -1,11 +1,15 @@
 rois:
 - name: ROI-1
-  x: 50
-  y: 45
-  w: 200
-  h: 150
+  shape: rect
+  cx: 150.0
+  cy: 120.0
+  w: 200.0
+  h: 150.0
+  angle: 0.0
 - name: ROI-2
-  x: 330
-  y: 90
-  w: 220
-  h: 160
+  shape: rect
+  cx: 440.0
+  cy: 170.0
+  w: 220.0
+  h: 160.0
+  angle: 0.0
