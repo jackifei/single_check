@@ -21,7 +21,7 @@ from app.checkdog.license_manager import LicenseManager
 class LicenseToolWindow(QWidget):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("SOP 授权码生成工具")
+        self.setWindowTitle("文视科技 授权码生成工具")
         self.resize(560, 320)
         self.manager = LicenseManager()
         self._build_ui()
