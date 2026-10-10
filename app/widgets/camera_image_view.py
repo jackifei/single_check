@@ -18,7 +18,8 @@ class CameraImageView(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("cameraImageView")
-        self.setMinimumSize(420, 360)
+        # 相机管理页上下各放一块画面，最小高度下调以适配双相机布局。
+        self.setMinimumSize(320, 200)
         self.setMouseTracking(True)
 
         self._pixmap: QPixmap | None = None

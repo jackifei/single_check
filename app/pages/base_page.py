@@ -13,6 +13,7 @@ class BasePage(QWidget):
     """
 
     tip_changed = pyqtSignal(str)
+    result_changed = pyqtSignal(str)
 
     def __init__(
         self,
@@ -38,6 +39,7 @@ class BasePage(QWidget):
 
     def set_result(self, text: str) -> None:
         self._result_text = text
+        self.result_changed.emit(text)
 
     def set_tip(self, text: str) -> None:
         self._tip_text = text
@@ -59,8 +61,16 @@ class BasePage(QWidget):
         """
         pass
 
+    def shutdown(self) -> None:
+        """应用关闭前释放页面持有的资源（如相机、线程），默认无操作。
+
+        主窗口关闭时子页面不会收到 closeEvent，因此统一由主窗口调用本方法。
+        """
+        pass
+
     def closeEvent(self, event: QCloseEvent) -> None:
         self.auto_save_config()
+        self.shutdown()
         super().closeEvent(event)
 
     # 插入点：可增加统一的页面暂停/恢复、定时刷新、权限控制等公共动作。

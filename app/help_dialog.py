@@ -17,16 +17,11 @@ from .checkdog.license_manager import LicenseManager
 
 
 HELP_CONTENT = """
-<h2>SOP 软件帮助</h2>
-<p>本界面是工业视觉/设备控制软件的 UI 框架 demo。</p>
+<h2>软件帮助</h2>
+<p>欢迎使用</p>
 <ul>
-  <li>顶部导航栏用于切换功能页面。</li>
-  <li>每个页面上方显示检测结果和操作提示。</li>
-  <li>模板编辑页可管理产品模板、ROI Config、Detection Config、Model Config 和 Other Config。</li>
-  <li>硬件配置页包含串口开关和 ModbusTCP IO 控制。</li>
-  <li>结果查询页可按时间范围和状态筛选历史检测记录。</li>
+  <li></li>
 </ul>
-<p>实际相机 SDK、Modbus 驱动、MES 接口和数据库请在各页面标记的“插入点”接入。</p>
 """
 
 

@@ -1,8 +1,18 @@
 camera_type: USB 相机
-driver: DirectShow
-camera: USB Camera 0
-exposure: 6000.0
-gain: 1.0
-frame_rate: 30.0
-trigger: 连续采集
-pixel_format: Mono8
+cameras:
+- index: 1
+  device: 0
+  device_name: '[0] USB Camera 0'
+  exposure: 6011.0
+  gain: 1.0
+  frame_rate: 30.0
+  trigger: 连续采集
+  pixel_format: Mono8
+- index: 2
+  device: 1
+  device_name: '[1] USB Camera 1'
+  exposure: 5000.0
+  gain: 1.0
+  frame_rate: 30.0
+  trigger: 连续采集
+  pixel_format: Mono8
