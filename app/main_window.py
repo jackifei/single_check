@@ -55,7 +55,7 @@ HIDDEN_PAGE_NAMES = ("AI模型", "结果查询", "MES对接", "日志", "参数"
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("兴龙戴卡视觉检测")
+        self.setWindowTitle("")
         self.resize(1440, 860)
         self.setMinimumSize(1100, 700)
 
@@ -70,7 +70,6 @@ class MainWindow(QMainWindow):
         self.button_group = QButtonGroup(self)
         self.button_group.setExclusive(True)
         self.help_dialog: HelpDialog | None = None
-        self.global_tip_label: QLabel | None = None
 
         central = QWidget()
         root = QVBoxLayout(central)
@@ -103,8 +102,6 @@ class MainWindow(QMainWindow):
             page = page_class()
             self.pages.append(page)
             self.stack.addWidget(page)
-            # 将各页面顶部提示同步到主窗口导航栏右侧，减少页面内占用。
-            page.tip_changed.connect(self._on_page_tip_changed)
             if isinstance(page, CameraPage):
                 self.camera_page = page
                 page.camera_metrics_changed.connect(self._on_camera_metrics_changed)
@@ -147,7 +144,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(10, 0, 10, 0)
         layout.setSpacing(2)
 
-        app_title = QLabel("")
+        app_title = QLabel("兴龙机加视觉检测")
         app_title.setObjectName("navAppTitle")
         layout.addWidget(app_title)
         layout.addSpacing(12)
@@ -164,11 +161,6 @@ class MainWindow(QMainWindow):
         # 插入点：需要全局快捷操作/菜单时，可在这里继续添加工具栏按钮或 QMenu。
 
         layout.addStretch(1)
-
-        self.global_tip_label = QLabel("操作提示：--")
-        self.global_tip_label.setObjectName("navTip")
-        self.global_tip_label.setWordWrap(False)
-        layout.addWidget(self.global_tip_label)
 
         # 主题切换按钮：在黑色主题与新增的浅色主题之间切换。
         self.theme_button = QPushButton("浅色主题")
@@ -197,13 +189,7 @@ class MainWindow(QMainWindow):
 
         page_title = NAV_ITEMS[index][0]
         self.status_bar.set_status("page", f"界面: {page_title}")
-        if self.global_tip_label is not None:
-            self.global_tip_label.setText(self.pages[index].current_tip())
         # 插入点：页面切换时可在此广播事件，例如暂停其他页面的定时刷新。
-
-    def _on_page_tip_changed(self, tip: str) -> None:
-        if self.global_tip_label is not None:
-            self.global_tip_label.setText(tip)
 
     def _on_camera_metrics_changed(self, data: dict) -> None:
         # 一拖二：按相机序号更新 FPS（图像尺寸已从状态栏移除）。

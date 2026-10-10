@@ -14,7 +14,6 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QSplitter,
     QVBoxLayout,
@@ -79,15 +78,6 @@ class CameraPage(BasePage):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        # 页面内可见的状态行：显示“检测结果”和“操作提示”，便于排查问题。
-        self.status_label = QLabel()
-        self.status_label.setObjectName("pageTip")
-        self.status_label.setWordWrap(True)
-        layout.addWidget(self.status_label)
-        self.result_changed.connect(lambda _text: self._refresh_status())
-        self.tip_changed.connect(lambda _text: self._refresh_status())
-        self._refresh_status()
-
         # 上下分割：两台相机各占一部分，中间的横向分隔栏可拖动。
         self.camera_splitter = QSplitter(Qt.Orientation.Vertical)
         self.camera_splitter.setChildrenCollapsible(False)
@@ -126,10 +116,6 @@ class CameraPage(BasePage):
         self.enumerate_button.clicked.connect(self._enumerate_cameras)
         self.save_button.clicked.connect(self._save_config)
         self.one_click_button.clicked.connect(self._one_click_open)
-
-    def _refresh_status(self) -> None:
-        """把检测结果与操作提示合并显示在页面顶部状态行。"""
-        self.status_label.setText(f"{self._result_text}     {self._tip_text}")
 
     def _on_unit_metrics(self, data: dict) -> None:
         """把相机单元上报的指标转发给主窗口，用于底部状态栏 FPS/图像显示。"""
