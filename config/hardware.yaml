@@ -1,7 +1,30 @@
-serial_port: COM2
-baud_rate: '115200'
-data_bits: '8'
-stop_bits: '1'
-parity: 无
-modbus_ip: 192.168.1.100
-modbus_port: 502
+modbus_type: rtu
+serial_port: COM6
+auto_start: false
+io_map:
+  inputs:
+  - name: IN01
+    function: 相机1 触发
+    edge: 上升沿
+  - name: IN02
+    function: 相机2 触发
+    edge: 上升沿
+  - name: IN03
+    function: 备用
+    edge: '-'
+  - name: IN04
+    function: 备用
+    edge: '-'
+  outputs:
+  - name: OUT01
+    function: 相机1 OK
+    pulse_ms: 1000
+  - name: OUT02
+    function: 相机1 NG
+    pulse_ms: 1000
+  - name: OUT03
+    function: 相机2 OK
+    pulse_ms: 1000
+  - name: OUT04
+    function: 相机2 NG
+    pulse_ms: 1000

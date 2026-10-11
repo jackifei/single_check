@@ -1,23 +1,26 @@
+"""相机管理页：一拖二 USB 相机。
+
+本次改造要点：
+- 单台相机的画面显示（缩放/拖动/像素信息）、打开关闭、相机参数全部封装在
+  `app/widgets/camera_unit.py` 的 CameraUnit 中，本页只负责实例化两次；
+- 页面用纵向 QSplitter 把两块相机单元上下分隔（中间的横向分隔栏可拖动）；
+- 去掉“功能选择（相机/标定）”，只保留相机操作，界面更简洁；
+- 底部保留“保存相机配置”和“一键打开相机”。
+"""
+
 from __future__ import annotations
 
-import time
-
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QCloseEvent, QImage, QPixmap
+from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
-    QComboBox,
-    QDoubleSpinBox,
-    QFileDialog,
-    QFormLayout,
-    QGroupBox,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QSplitter,
-    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
+
+from app.widgets import camera_unit
 
 if __package__ in (None, ""):
     import sys
@@ -26,368 +29,182 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from app.pages.base_page import BasePage
     from app.services.config_service import ConfigService
-    from app.widgets.calibration_panel import CalibrationPanel
-    from app.widgets.camera_image_view import CameraImageView
-    from drivers.camera.usb_camera import UsbCameraCaptureThread, UsbCameraDriver
+    from app.widgets.camera_unit import CameraUnit, DeviceRegistry
+    from drivers.camera.usb_camera import UsbCameraDriver
 else:
     from .base_page import BasePage
     from ..services.config_service import ConfigService
-    from ..widgets.calibration_panel import CalibrationPanel
-    from ..widgets.camera_image_view import CameraImageView
-    from drivers.camera.usb_camera import UsbCameraCaptureThread, UsbCameraDriver
+    from ..widgets.camera_unit import CameraUnit, DeviceRegistry
+    from drivers.camera.usb_camera import UsbCameraDriver
 
 
 class CameraPage(BasePage):
     """相机管理页。
 
-    左侧为图像显示与像素信息状态栏，右侧可在相机控制和标定功能之间切换。
+    页面内容是一根纵向分隔栏，上方为 1 号相机单元，下方为 2 号相机单元。
     """
 
     camera_metrics_changed = pyqtSignal(dict)
     image_changed = pyqtSignal(object)
+    # 带相机序号的画面广播：供看板把画面分到相机 1 / 相机 2 两个工位。
+    camera_image_changed = pyqtSignal(int, object)
+    # 单帧快照广播：仅拍照/打开本地图像时发出，供模板编辑 ROI 背景使用。
+    snapshot_changed = pyqtSignal(object)
+
+    # 一拖二：同时管理的相机数量。
+    CAMERA_COUNT = 2
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
             "相机管理",
-            "选择 USB/GIGE 相机、调整采集参数，或进行相机标定。",
+            "打开两台 USB 相机并预览；拖动中间分隔栏可调整上下画面比例。",
             parent,
         )
         self.config_service = ConfigService()
-        self.camera_opened = False
-        self.usb_driver = UsbCameraDriver()
-        self.capture_thread: UsbCameraCaptureThread | None = None
-        self._last_frame_time = time.perf_counter()
-        self._image_size_text = "--"
-        self._mouse_xy_text = "--"
-        self._rgb_text = "--"
-        self._gray_text = "--"
+        self.camera_units: list[CameraUnit] = []
+        # 两台相机共用一张设备占用登记表：只用于防止同时打开同一路设备。
+        self.device_registry = DeviceRegistry()
         self._build_ui()
         self._load_config()
         self.set_result("检测结果：相机未连接")
-        self.set_tip("操作提示：请先选择相机类型和驱动，再枚举并打开相机。")
+        self.set_tip("操作提示：枚举相机后打开，或点击右下角“一键打开相机”按保存配置启动。")
 
+    # ------------------------------------------------------------------
+    # 界面构建
+    # ------------------------------------------------------------------
     def _build_ui(self) -> None:
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setChildrenCollapsible(False)
-        splitter.setHandleWidth(5)
-        splitter.addWidget(self._build_image_area())
-        right = self._build_control_area()
-        right.setMinimumWidth(360)
-        splitter.addWidget(right)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 0)
-        splitter.setSizes([900, 420])
-        self.add_to_content(splitter, stretch=1)
-
-    def _build_image_area(self) -> QWidget:
         container = QWidget()
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(6)
 
-        self.image_view = CameraImageView()
-        layout.addWidget(self.image_view, 1)
+        # 上下分割：两台相机各占一部分，中间的横向分隔栏可拖动。
+        self.camera_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.camera_splitter.setChildrenCollapsible(False)
+        self.camera_splitter.setHandleWidth(6)
+        for index in range(1, self.CAMERA_COUNT + 1):
+            # 每台相机独立驱动、独立采集线程；仅共享设备占用登记表。
+            unit = CameraUnit(index, registry=self.device_registry)
+            unit.metrics_changed.connect(self._on_unit_metrics)
+            unit.image_changed.connect(self.image_changed.emit)
+            unit.image_changed.connect(
+                lambda pixmap, i=index: self.camera_image_changed.emit(i, pixmap)
+            )
+            unit.snapshot_changed.connect(self.snapshot_changed.emit)
+            unit.result_changed.connect(self.set_result)
+            unit.tip_changed.connect(self.set_tip)
+            self.camera_units.append(unit)
+            self.camera_splitter.addWidget(unit)
+        # 默认上下等分，用户可再拖动中间分隔栏调整比例。
 
-        self.image_status_label = QLabel("图像尺寸：--    XY：--    RGB：--    灰度：--")
-        self.image_status_label.setObjectName("pageTip")
-        self.image_status_label.setStyleSheet("padding: 4px 6px; background: #252526;")
-        layout.addWidget(self.image_status_label)
+        self.camera_splitter.setSizes([1, 1])
+        layout.addWidget(self.camera_splitter, 1)
 
-        self.image_view.pixel_info_changed.connect(self._on_pixel_info)
-        self.image_view.mouse_position_changed.connect(self._on_mouse_position)
-        return container
-
-    def _build_control_area(self) -> QWidget:
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        mode_row = QHBoxLayout()
-        mode_row.addWidget(QLabel("功能"))
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItem("相机", 0)
-        self.mode_combo.addItem("标定", 1)
-        mode_row.addWidget(self.mode_combo, 1)
-        layout.addLayout(mode_row)
-
-        self.right_stack = QStackedWidget()
-        self.right_stack.addWidget(self._build_camera_control_page())
-        self.calibration_panel = CalibrationPanel()
-        self.right_stack.addWidget(self.calibration_panel)
-        layout.addWidget(self.right_stack, 1)
-
-        self.mode_combo.currentIndexChanged.connect(self.right_stack.setCurrentIndex)
-        self.image_view.image_point_clicked.connect(self.calibration_panel.handle_image_point)
-        return container
-
-    def _build_camera_control_page(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-
-        control_group = QGroupBox("相机控制")
-        control_form = QFormLayout(control_group)
-        control_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-
-        self.camera_type_combo = QComboBox()
-        self.camera_type_combo.addItems(["USB 相机", "GIGE 相机"])
-
-        self.driver_combo = QComboBox()
-        self.driver_combo.addItems(["DirectShow", "Basler Pylon", "HIKVISION SDK", "GigE Vision"])
-
-        self.camera_list_combo = QComboBox()
-        self.camera_list_combo.setStyleSheet(
-            "QComboBox { background-color: #123a56; color: #ffffff; border: 2px solid #4ec9b0; border-radius: 4px; padding: 4px 8px; font-weight: 600; }"
-        )
-        self.enumerate_button = QPushButton("枚举相机")
-        self.open_camera_button = QPushButton("打开相机")
-        self.open_camera_button.setCheckable(True)
-
-        control_form.addRow("相机类型", self.camera_type_combo)
-        control_form.addRow("驱动选择", self.driver_combo)
-        control_form.addRow("相机列表", self.camera_list_combo)
-        control_form.addRow("", self.enumerate_button)
-        control_form.addRow("", self.open_camera_button)
-
-        preview_buttons = QHBoxLayout()
-        self.start_preview_button = QPushButton("开始预览")
-        self.stop_preview_button = QPushButton("停止预览")
-        self.capture_button = QPushButton("拍照")
-        preview_buttons.addWidget(self.start_preview_button)
-        preview_buttons.addWidget(self.stop_preview_button)
-        preview_buttons.addWidget(self.capture_button)
-        preview_container = QWidget()
-        preview_container.setLayout(preview_buttons)
-        control_form.addRow("", preview_container)
-        layout.addWidget(control_group)
-
-        self.open_local_image_button = QPushButton("打开本地图像")
-        layout.addWidget(self.open_local_image_button)
-
-        param_group = QGroupBox("相机参数")
-        param_form = QFormLayout(param_group)
-        param_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-
-        self.exposure_spin = QDoubleSpinBox()
-        self.exposure_spin.setRange(0.0, 100000.0)
-        self.exposure_spin.setDecimals(1)
-        self.exposure_spin.setValue(5000.0)
-        self.exposure_spin.setSuffix(" us")
-
-        self.gain_spin = QDoubleSpinBox()
-        self.gain_spin.setRange(0.0, 48.0)
-        self.gain_spin.setDecimals(2)
-        self.gain_spin.setValue(1.00)
-
-        self.frame_rate_spin = QDoubleSpinBox()
-        self.frame_rate_spin.setRange(0.1, 500.0)
-        self.frame_rate_spin.setDecimals(1)
-        self.frame_rate_spin.setValue(30.0)
-        self.frame_rate_spin.setSuffix(" fps")
-
-        self.trigger_combo = QComboBox()
-        self.trigger_combo.addItems(["连续采集", "软件触发", "硬件触发"])
-
-        self.pixel_format_combo = QComboBox()
-        self.pixel_format_combo.addItems(["Mono8", "Mono10", "BayerRG8", "RGB8"])
-
-        param_form.addRow("曝光时间", self.exposure_spin)
-        param_form.addRow("增益", self.gain_spin)
-        param_form.addRow("帧率", self.frame_rate_spin)
-        param_form.addRow("触发模式", self.trigger_combo)
-        param_form.addRow("像素格式", self.pixel_format_combo)
-        self.center_cross_button = QPushButton("十字线居中")
-        param_form.addRow("", self.center_cross_button)
+        # 页面底部：枚举相机 + 保存配置 + 一键打开（水平排列）。
+        bottom = QHBoxLayout()
         self.save_button = QPushButton("保存相机配置")
-        param_form.addRow("", self.save_button)
-        layout.addWidget(param_group)
+        self.one_click_button = QPushButton("一键打开相机")
+        self.one_click_button.setMinimumHeight(34)
+        self.enumerate_button = QPushButton("枚举相机")
+        bottom.addWidget(self.save_button)
+        bottom.addWidget(self.one_click_button, 1)
+        bottom.addWidget(self.enumerate_button)
+        layout.addLayout(bottom)
 
-        layout.addStretch(1)
+        self.add_to_content(container, stretch=1)
 
-        self.start_preview_button.clicked.connect(self._start_preview)
-        self.stop_preview_button.clicked.connect(self._stop_preview)
-        self.capture_button.clicked.connect(self._capture)
-        self.open_local_image_button.clicked.connect(self._open_local_image)
         self.enumerate_button.clicked.connect(self._enumerate_cameras)
-        self.open_camera_button.clicked.connect(self._toggle_camera)
         self.save_button.clicked.connect(self._save_config)
-        self.center_cross_button.clicked.connect(self.image_view.center_cross)
-        return page
+        self.one_click_button.clicked.connect(self._one_click_open)
 
-    def _on_pixel_info(self, rgb: str, gray: str) -> None:
-        self._rgb_text = rgb
-        self._gray_text = gray
-        self._refresh_image_status()
-
-    def _on_mouse_position(self, x: float, y: float) -> None:
-        if x < 0 or y < 0:
-            self._mouse_xy_text = "--"
-        else:
-            self._mouse_xy_text = f"{int(x)},{int(y)}"
-        self._refresh_image_status()
-
-    def _set_image_size_text(self, text: str) -> None:
-        self._image_size_text = text
-        self._refresh_image_status()
-
-    def _refresh_image_status(self) -> None:
-        self.image_status_label.setText(
-            f"图像尺寸：{self._image_size_text}    XY：{self._mouse_xy_text}"
-            f"    RGB：{self._rgb_text}    灰度：{self._gray_text}"
-        )
+    def _on_unit_metrics(self, data: dict) -> None:
+        """把相机单元上报的指标转发给主窗口，用于底部状态栏 FPS/图像显示。"""
+        self.camera_metrics_changed.emit(data)
 
     def _enumerate_cameras(self) -> None:
-        camera_type = self.camera_type_combo.currentText()
-        driver = self.driver_combo.currentText()
-        self.camera_list_combo.clear()
-        if camera_type == "USB 相机":
-            devices = self.usb_driver.enumerate_devices()
-            for device in devices:
-                self.camera_list_combo.addItem(device["name"], device["id"])
-            self.set_result(f"检测结果：已枚举 {len(devices)} 台 USB 相机")
-        else:
-            demo_cameras = [
-                f"{camera_type} / {driver} / CAM-00{index + 1}"
-                for index in range(3)
-            ]
-            self.camera_list_combo.addItems(demo_cameras)
-            self.set_result(f"检测结果：已枚举 {len(demo_cameras)} 台相机")
-
-    def _toggle_camera(self, checked: bool) -> None:
-        self.camera_opened = checked
-        self.open_camera_button.setText("关闭相机" if checked else "打开相机")
-        camera = self.camera_list_combo.currentText() or "未选择"
-        if checked and self.camera_type_combo.currentText() == "USB 相机":
-            device_id = self.camera_list_combo.currentData()
-            if device_id is None:
-                self.set_result("检测结果：未选择 USB 相机")
-                self.open_camera_button.setChecked(False)
-                return
-            ok = self.usb_driver.open(int(device_id))
-            if not ok:
-                self.set_result("检测结果：USB 相机打开失败")
-                self.open_camera_button.setChecked(False)
-                return
-            self.set_result(f"检测结果：USB 相机 {camera} 已打开")
-        else:
-            self._stop_preview()
-            self.usb_driver.close()
+        """页面级枚举：得到完整设备列表后，把全部索引同步给两台相机。"""
+        devices = UsbCameraDriver.list_devices()
+        for unit in self.camera_units:
+            unit.set_device_list(devices)
+        if devices:
             self.set_result(
-                f"检测结果：相机 {camera} {'已打开' if checked else '已关闭'}"
+                f"检测结果：枚举到 {len(devices)} 台 USB 相机，已同步到相机 1 / 相机 2"
             )
-        if not checked:
-            self._emit_camera_metrics(0, "--")
-            self._set_image_size_text("--")
+            self.set_tip("操作提示：请在相机 1、相机 2 的下拉框中选择不同的设备。")
+        else:
+            self.set_result("检测结果：未枚举到可用的 USB 相机")
+            self.set_tip(
+                "操作提示：请确认相机已插好、当前用户有摄像头权限，且未被其它程序占用。"
+            )
 
-    def _open_local_image(self) -> None:
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "打开本地图像",
-            "",
-            "图像文件 (*.png *.jpg *.jpeg *.bmp *.tif *.tiff);;所有文件 (*.*)",
-        )
-        if not file_path:
-            return
-        pixmap = QPixmap(file_path)
-        if pixmap.isNull():
-            self.set_result("检测结果：本地图像打开失败")
-            return
-        self._stop_preview()
-        self.image_view.set_pixmap(pixmap)
-        self.image_changed.emit(pixmap)
-        self._set_image_size_text(f"{pixmap.width()}x{pixmap.height()}")
-        self._emit_camera_metrics(0, f"{pixmap.width()}x{pixmap.height()}")
-        self.set_result(f"检测结果：已打开本地图像 {file_path}")
-
-    def _start_preview(self) -> None:
-        if not self.usb_driver.is_opened():
-            self.set_result("检测结果：请先打开 USB 相机")
-            return
-        self._stop_preview()
-        self._last_frame_time = time.perf_counter()
-        self.capture_thread = UsbCameraCaptureThread(self.usb_driver, self)
-        self.capture_thread.frame_ready.connect(self._update_preview_frame)
-        self.capture_thread.start()
-        self.set_tip("操作提示：USB 相机预览已启动。")
-
-    def _stop_preview(self) -> None:
-        if self.capture_thread is not None:
-            self.capture_thread.stop()
-            self.capture_thread.wait(1000)
-            self.capture_thread.deleteLater()
-            self.capture_thread = None
-        self.set_tip("操作提示：USB 相机预览已停止。")
-
-    def _capture(self) -> None:
-        self._stop_preview()
-        frame = self.usb_driver.read_frame()
-        if frame is None:
-            self.set_result("检测结果：拍照失败，相机未取到图像")
-            return
-        pixmap = self._frame_to_pixmap(frame)
-        self.image_view.set_pixmap(pixmap)
-        self.image_changed.emit(pixmap)
-        height, width = frame.shape[:2]
-        self._set_image_size_text(f"{width}x{height}")
-        self._emit_camera_metrics(1, f"{width}x{height}")
-        self.set_result(f"检测结果：拍照完成，图像大小 {width}x{height}")
-
-    def _update_preview_frame(self, frame) -> None:
-        now = time.perf_counter()
-        delta = now - self._last_frame_time
-        self._last_frame_time = now
-        fps = 1.0 / delta if delta > 0 else 0.0
-        height, width = frame.shape[:2]
-        pixmap = self._frame_to_pixmap(frame)
-        self.image_view.set_pixmap(pixmap)
-        self.image_changed.emit(pixmap)
-        self._set_image_size_text(f"{width}x{height}")
-        self._emit_camera_metrics(round(fps, 1), f"{width}x{height}")
-
-    def _frame_to_pixmap(self, frame) -> QPixmap:
-        height, width = frame.shape[:2]
-        qimage = QImage(frame.data, width, height, 3 * width, QImage.Format.Format_RGB888).rgbSwapped().copy()
-        return QPixmap.fromImage(qimage)
-
-    def _emit_camera_metrics(self, fps: float, image_size: str) -> None:
-        self.camera_metrics_changed.emit({"fps": fps, "image_size": image_size})
-
+    # ------------------------------------------------------------------
+    # 配置读写 / 一键打开
+    # ------------------------------------------------------------------
     def _save_config(self) -> None:
+        """把两台相机的参数保存到 config/camera.yaml。"""
         self.config_service.save_page_config(
             "camera",
             {
-                "camera_type": self.camera_type_combo.currentText(),
-                "driver": self.driver_combo.currentText(),
-                "camera": self.camera_list_combo.currentText(),
-                "exposure": self.exposure_spin.value(),
-                "gain": self.gain_spin.value(),
-                "frame_rate": self.frame_rate_spin.value(),
-                "trigger": self.trigger_combo.currentText(),
-                "pixel_format": self.pixel_format_combo.currentText(),
+                "camera_type": "USB 相机",
+                "cameras": [unit.config() for unit in self.camera_units],
             },
         )
-        self.set_tip("操作提示：相机配置已保存到 config/camera.yaml。")
+        self.set_tip("操作提示：两台相机配置已保存到 config/camera.yaml。")
 
     def _load_config(self) -> None:
+        """启动时回显已保存的配置（只回显曝光时间与设备，不自动打开）。"""
         data = self.config_service.load_page_config("camera")
-        if not data:
-            return
-        self.camera_type_combo.setCurrentText(str(data.get("camera_type", self.camera_type_combo.currentText())))
-        self.driver_combo.setCurrentText(str(data.get("driver", self.driver_combo.currentText())))
-        self.exposure_spin.setValue(float(data.get("exposure", self.exposure_spin.value())))
-        self.gain_spin.setValue(float(data.get("gain", self.gain_spin.value())))
-        self.frame_rate_spin.setValue(float(data.get("frame_rate", self.frame_rate_spin.value())))
-        self.trigger_combo.setCurrentText(str(data.get("trigger", self.trigger_combo.currentText())))
-        self.pixel_format_combo.setCurrentText(str(data.get("pixel_format", self.pixel_format_combo.currentText())))
+        cameras = data.get("cameras") or []
+        if cameras:
+            for unit, config in zip(self.camera_units, cameras):
+                unit.apply_config(config)
+        elif data:
+            # 兼容旧版“单相机扁平结构”：回显到 1 号相机，避免升级后参数丢失。
+            self.camera_units[0].apply_config(
+                {"exposure": data.get("exposure", 5000.0)}
+            )
 
+    def _one_click_open(self) -> None:
+        """一键打开：按保存的配置打开两台相机并各做一次首帧拍照（不启动实时预览）。"""
+        data = self.config_service.load_page_config("camera")
+        cameras = data.get("cameras") or []
+        if not cameras:
+            self.set_result("检测结果：暂无已保存的相机配置，请先枚举、打开并保存")
+            self.set_tip("操作提示：先配置两台相机并点击“保存相机配置”，再使用一键打开。")
+            return
+
+        opened = 0
+        for unit, config in zip(self.camera_units, cameras):
+            if unit.auto_start(config):
+                opened += 1
+        self.set_tip(
+            f"操作提示：一键打开完成，成功打开并完成首帧拍照 "
+            f"{opened}/{len(self.camera_units)} 台相机。"
+        )
+
+    def auto_open_cameras(self) -> None:
+        """供“自启动”调用：按保存的配置打开两台相机并开始预览。"""
+        self._one_click_open()
+
+    def capture_camera(self, index: int) -> None:
+        """对指定相机（1 或 2）执行一次拍照，供“拍照检测”触发。"""
+        position = index - 1
+        if 0 <= position < len(self.camera_units):
+            self.camera_units[position].capture()
+
+    # ------------------------------------------------------------------
+    # 生命周期
+    # ------------------------------------------------------------------
     def auto_save_config(self) -> None:
         self._save_config()
-        self.calibration_panel._save_calib_config()
+
+    def shutdown(self) -> None:
+        """关闭页面/应用前，释放两台相机的采集线程与设备。"""
+        for unit in self.camera_units:
+            unit.shutdown()
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        self._stop_preview()
+        self.shutdown()
         super().closeEvent(event)
 
 

@@ -39,6 +39,8 @@ def _default_template(name: str) -> dict:
     """生成新模板的默认数据。"""
     return {
         "name": name,
+        # 检测时使用的图像来源：相机 1 或 相机 2。
+        "camera_source": "相机1",
         "model_file": "",
         "rois": [
             {"name": "ROI-1", "shape": "rect", "cx": 150, "cy": 120, "w": 200, "h": 150, "angle": 0},
@@ -73,6 +75,8 @@ class FlowPage(BasePage):
     """
 
     template_list_changed = pyqtSignal()
+    # 拍照检测请求：参数为图像来源相机序号（1 或 2）。
+    capture_detect_requested = pyqtSignal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
@@ -85,6 +89,7 @@ class FlowPage(BasePage):
         self.current_template_name = ""
         self._build_ui()
         self._load_template_list()
+        self._load_assignment()
 
     def _build_ui(self) -> None:
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -106,11 +111,23 @@ class FlowPage(BasePage):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        switch_group = QGroupBox("模板名称")
+        switch_group = QGroupBox("模板操作")
         switch_layout = QHBoxLayout(switch_group)
+        switch_layout.addWidget(QLabel("模板"))
         self.template_combo = QComboBox()
         switch_layout.addWidget(self.template_combo, 1)
+        switch_layout.addWidget(QLabel("图像来源"))
+        self.camera_source_combo = QComboBox()
+        self.camera_source_combo.addItems(["相机1", "相机2"])
+        switch_layout.addWidget(self.camera_source_combo)
         layout.addWidget(switch_group)
+
+        # 拍照检测：按当前模板的图像来源触发对应相机拍照并检测。
+        capture_row = QHBoxLayout()
+        self.capture_detect_button = QPushButton("拍照检测")
+        self.capture_detect_button.setMinimumHeight(34)
+        capture_row.addWidget(self.capture_detect_button)
+        layout.addLayout(capture_row)
 
         template_group = QGroupBox("产品模板")
         template_layout = QVBoxLayout(template_group)
@@ -131,12 +148,39 @@ class FlowPage(BasePage):
         template_layout.addWidget(self.save_template_button)
         layout.addWidget(template_group, 1)
 
+        # 相机模板分配：给两台相机分别指定检测模板。
+        layout.addWidget(self._build_assignment_group())
+
         self.template_combo.currentTextChanged.connect(self._on_template_combo_changed)
         self.new_template_button.clicked.connect(self._new_template)
         self.copy_template_button.clicked.connect(self._copy_template)
         self.delete_template_button.clicked.connect(self._delete_template)
         self.save_template_button.clicked.connect(self._save_current_template)
+        self.capture_detect_button.clicked.connect(self._on_capture_detect)
         return container
+
+    def _build_assignment_group(self) -> QGroupBox:
+        """相机模板分配模块：相机 1 / 相机 2 各选择一个产品模板。"""
+        group = QGroupBox("相机模板分配")
+        layout = QVBoxLayout(group)
+
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("相机 1"))
+        self.camera1_template_combo = QComboBox()
+        row1.addWidget(self.camera1_template_combo, 1)
+        layout.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("相机 2"))
+        self.camera2_template_combo = QComboBox()
+        row2.addWidget(self.camera2_template_combo, 1)
+        layout.addLayout(row2)
+
+        self.save_assignment_button = QPushButton("保存分配")
+        layout.addWidget(self.save_assignment_button)
+
+        self.save_assignment_button.clicked.connect(self._save_assignment)
+        return group
 
     def _build_roi_group(self) -> QGroupBox:
         group = QGroupBox("ROI Config")
@@ -184,6 +228,7 @@ class FlowPage(BasePage):
             self._set_current_template(select_name)
         elif names:
             self._set_current_template(names[0])
+        self._refresh_assignment_combos()
 
     def _set_current_template(self, name: str) -> None:
         self.template_combo.blockSignals(True)
@@ -199,6 +244,62 @@ class FlowPage(BasePage):
             self.template_list.setCurrentItem(items[0])
             self.template_list.blockSignals(False)
 
+    # ------------------------------------------------------------------
+    # 相机模板分配
+    # ------------------------------------------------------------------
+    def _refresh_assignment_combos(self) -> None:
+        """把产品模板列表同步到两个相机分配下拉框（保留原选择）。"""
+        names = self.config_service.list_templates()
+        for combo in (self.camera1_template_combo, self.camera2_template_combo):
+            current = combo.currentText()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItems(names)
+            if current in names:
+                combo.setCurrentText(current)
+            combo.blockSignals(False)
+
+    def _load_assignment(self) -> None:
+        """读取已保存的相机模板分配。"""
+        data = self.config_service.load_page_config("template_assign")
+        if not data:
+            return
+        if data.get("camera_1"):
+            self.camera1_template_combo.setCurrentText(str(data["camera_1"]))
+        if data.get("camera_2"):
+            self.camera2_template_combo.setCurrentText(str(data["camera_2"]))
+
+    def _save_assignment(self) -> None:
+        """保存相机模板分配到 config/template_assign.yaml。"""
+        self.config_service.save_page_config(
+            "template_assign",
+            {
+                "camera_1": self.camera1_template_combo.currentText(),
+                "camera_2": self.camera2_template_combo.currentText(),
+            },
+        )
+        self.set_tip("操作提示：相机模板分配已保存，触发检测时将按此配置选择模板。")
+
+    def camera_template(self, camera_index: int) -> str:
+        """返回某相机分配到的模板名（camera_index 为 1 或 2）。供触发检测使用。"""
+        if camera_index == 1:
+            return self.camera1_template_combo.currentText()
+        if camera_index == 2:
+            return self.camera2_template_combo.currentText()
+        return ""
+
+    def _on_capture_detect(self) -> None:
+        """拍照检测按钮：按当前模板的图像来源触发对应相机拍照并检测。"""
+        if not self.current_template_name:
+            self.set_tip("操作提示：请先选择模板。")
+            return
+        camera_index = 2 if self.camera_source_combo.currentText() == "相机2" else 1
+        self.set_tip(
+            f"操作提示：已触发相机 {camera_index} 拍照检测"
+            f"（模板「{self.current_template_name}」）。"
+        )
+        self.capture_detect_requested.emit(camera_index)
+
     def _on_template_combo_changed(self, name: str) -> None:
         if not name:
             return
@@ -212,6 +313,9 @@ class FlowPage(BasePage):
         self.templates[name] = data
         self.current_template_name = name
         self.roi_canvas.set_rois(deepcopy(data.get("rois", [])))
+        camera_source = str(data.get("camera_source", "相机1"))
+        if self.camera_source_combo.findText(camera_source) >= 0:
+            self.camera_source_combo.setCurrentText(camera_source)
         self.set_result(f"检测结果：模板「{name}」已加载")
         self.set_tip("操作提示：ROI 在当前页面编辑，其他参数通过“编辑参数”弹窗修改。")
 
@@ -290,7 +394,13 @@ class FlowPage(BasePage):
         if not name:
             return
         data = self.templates.get(name, _default_template(name))
-        data.update({"name": name, "rois": self.roi_canvas.get_rois()})
+        data.update(
+            {
+                "name": name,
+                "camera_source": self.camera_source_combo.currentText(),
+                "rois": self.roi_canvas.get_rois(),
+            }
+        )
         self.templates[name] = data
         self._persist_template(name, data)
         self.set_tip(f"操作提示：模板「{name}」已保存到模板目录。")
@@ -298,6 +408,7 @@ class FlowPage(BasePage):
     def _persist_template(self, name: str, data: dict) -> None:
         payload = {
             "name": data.get("name", name),
+            "camera_source": data.get("camera_source", "相机1"),
             "model_file": data.get("model_file", ""),
             "rois": data.get("rois", []),
             "detection": data.get("detection", {}),
@@ -347,6 +458,7 @@ class FlowPage(BasePage):
 
     def auto_save_config(self) -> None:
         self._save_current_template()
+        self._save_assignment()
 
 
 if __name__ == "__main__":

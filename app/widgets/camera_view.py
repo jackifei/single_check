@@ -18,6 +18,7 @@ class CameraViewWidget(QWidget):
         self.rois: list[tuple[int, int, int, int]] = []
         self.status_text = "等待相机画面"
         self._pixmap: QPixmap | None = None
+        self._show_crosshair = True
 
     def set_pixmap(self, pixmap: QPixmap) -> None:
         self._pixmap = pixmap
@@ -29,6 +30,11 @@ class CameraViewWidget(QWidget):
 
     def set_status_text(self, text: str) -> None:
         self.status_text = text
+        self.update()
+
+    def set_crosshair_visible(self, visible: bool) -> None:
+        """控制中心十字线的显示（运行看板默认关闭）。"""
+        self._show_crosshair = visible
         self.update()
 
     def _image_rect(self) -> QRectF:
@@ -66,13 +72,14 @@ class CameraViewWidget(QWidget):
                 self.status_text,
             )
 
-        # 画中心十字线，模拟相机取景辅助线。
-        center = self.rect().center()
-        pen = QPen(QColor("#3c3c3c"))
-        pen.setWidth(1)
-        painter.setPen(pen)
-        painter.drawLine(center.x(), 0, center.x(), self.height())
-        painter.drawLine(0, center.y(), self.width(), center.y())
+        # 画中心十字线（模拟取景辅助线），运行看板中默认关闭。
+        if self._show_crosshair:
+            center = self.rect().center()
+            pen = QPen(QColor("#3c3c3c"))
+            pen.setWidth(1)
+            painter.setPen(pen)
+            painter.drawLine(center.x(), 0, center.x(), self.height())
+            painter.drawLine(0, center.y(), self.width(), center.y())
 
         scale = self._scale()
         offset = image_rect.topLeft() if not image_rect.isNull() else QPointF(0.0, 0.0)

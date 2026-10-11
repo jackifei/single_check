@@ -1,4 +1,5 @@
 name: '123'
+camera_source: 相机1
 model_file: ''
 rois:
 - name: ROI-5
